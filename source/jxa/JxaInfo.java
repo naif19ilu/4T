@@ -2,6 +2,7 @@ package jxa;
 
 public class JxaInfo
 {
-	final public static String projectName = "your project name";
-	final public static String projectDesc = "your project description";
+	final public static String projectName  = "4T";
+	final public static String projectDesc  = "Terminal Task Time Tracker";
+	final public static String usageExample = "-t <task> [flags]";
 }
