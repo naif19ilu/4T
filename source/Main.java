@@ -4,21 +4,37 @@ import java.io.IOException;
 
 final class Error
 {
-	public static void programAlreadyInstalled (final String path)
+	public static void programAlreadyInstalled (final String log, final String bin)
 	{
-		System.err.println("already installed at " + path);
+		final String format = String.format(
+			"4T: fatal: program already install!\n" +
+			" log file: %s\n" +
+			" bin file: %s",
+			log,
+			bin
+		);
+		System.err.println(format);
 		System.exit(1);
 	}
 
 	public static <T extends Exception> void internals (final T e)
 	{
-		System.err.println("internal");
+		final String format = String.format(
+			"4T: fatal: internal errror! gotta abort now\n" +
+			" reason: %s",
+			e.getMessage()
+		);
+		System.err.println(format);
 		System.exit(1);
 	}
 
 	public static void emptyTaskName ()
 	{
-		System.err.println("empty task name");
+		final String format = String.format(
+			"4T: fatal: no name provided to the current task!\n" +
+			" make sure you name your task! everything should be worth enough to give it a name"
+		);
+		System.err.println(format);
 		System.exit(1);
 	}
 }
@@ -53,11 +69,13 @@ final class Arguments
 
 final class LogFile
 {
-	final private static String _path = System.getProperty("user.home") + "/.fourt";
+	final private static String _home    = System.getProperty("user.home");
+	final private static String _logPath = _home + "/.fourt";
+	final private static String _binPath = "/bin/fourt";
 
 	public static void create ()
 	{
-		File file = new File(_path);
+		File file = new File(_logPath);
 		try
 		{
 			if (file.createNewFile())
@@ -65,7 +83,7 @@ final class LogFile
 				System.out.println("program already installed :)");
 				System.out.printf(" location: %s\n", file.getAbsolutePath());
 			}
-			else { Error.programAlreadyInstalled(_path); }
+			else { Error.programAlreadyInstalled(_logPath, _binPath); }
 		}
 		catch (IOException e) { Error.internals(e); }
 	}
@@ -94,8 +112,6 @@ final class Information
 	public static void provide ()
 	{
 		final String task = Arguments.info.getArgument();
-		System.out.println("of: " + task);
-
 		if (task.isEmpty()) { _all(); }
 		else { _specific(task); }
 	}
@@ -139,4 +155,3 @@ public class Main
 		else                               { Task.startTask();      }
 	}
 }
-
