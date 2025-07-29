@@ -25,6 +25,7 @@ struct font
 };
 
 #include "fonts/bulbhead.inc"
+#include "fonts/raw.inc"
 
 struct fourt
 {
@@ -56,6 +57,8 @@ static void pick_font (struct font*, const char*);
 static void draw_colons (struct font*, const unsigned int, const unsigned int);
 static void display_pair (struct font*, const unsigned int, const enum time_type, const unsigned int, const unsigned int);
 
+static void display_font_names (void);
+
 int main (int argc, char **argv)
 {
 	struct fourt ft;
@@ -77,6 +80,12 @@ int main (int argc, char **argv)
 	};
 
 	cxa_clean(cxa_execute((unsigned char) argc, argv, flags, "4T"));
+	if (flags[6].meta & CXA_FLAG_SEEN_MASK)
+	{
+		display_font_names();
+		return 0;
+	}
+
 	if ((ft.args.task == NULL) || (flags[4].meta & CXA_FLAG_SEEN_MASK))
 	{
 		cxa_print_usage(DESC, flags);
@@ -166,7 +175,8 @@ static void pick_font (struct font *font, const char *asked)
 	/* Whatever is given to you via argv is null terminated
 	 * so we do not need to compare at most N bytes
 	 */
-	if (strcmp(asked, "bulbhead")) { *font = f_bulbhead; }
+	if (!strcmp(asked, "bulbhead")) { *font = f_bulbhead; }
+	else if (!strcmp(asked, "raw")) { *font = f_raw; }
 	else { *font = f_bulbhead; }
 }
 
@@ -207,4 +217,30 @@ static void display_pair (struct font *font, const unsigned int left, const enum
 	}
 
 	if (kind == time_t_seconds) { return; }
+}
+
+static void display_font_names (void)
+{
+	const unsigned int no = 11;
+	static const char *const fonts[] =
+	{
+		"braced",
+		"bulbhead (default)",
+		"fraktur",
+		"hollywood",
+		"italic",
+		"larry3d",
+		"raw",
+		"rectangles",
+		"short",
+		"small",
+		"wavy"
+	};
+
+	printf("\n\t4T List of fonts available!\n");
+	for (unsigned int i = 0; i < no; i++)
+	{
+		printf("\t - %s\n", fonts[i]);
+	}
+	printf("\tremember to use -f flag to use any of these (-f <font> or --flag=<font> or --flag <font>\n\n");
 }
