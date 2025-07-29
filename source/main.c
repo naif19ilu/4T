@@ -89,12 +89,15 @@ int main (int argc, char **argv)
 
 	cxa_clean(cxa_execute((unsigned char) argc, argv, flags, "4T"));
 
-	if (flags[6].meta & CXA_FLAG_SEEN_MASK) { display_font_names(); return 0; }
-	if (flags[3].meta & CXA_FLAG_SEEN_MASK) { do_preview(ft.args.font); return 0; }
+	if (flags[6].meta & CXA_FLAG_SEEN_MASK)                             { display_font_names();         return 0; }
+	if (flags[3].meta & CXA_FLAG_SEEN_MASK)                             { do_preview(ft.args.font);     return 0; }
+	if ((ft.args.task == NULL) || (flags[4].meta & CXA_FLAG_SEEN_MASK)) { cxa_print_usage(DESC, flags); return 0; }
 
-	if ((ft.args.task == NULL) || (flags[4].meta & CXA_FLAG_SEEN_MASK))
+	if (*ft.args.task == 0)
 	{
-		cxa_print_usage(DESC, flags);
+		fprintf(stderr, "4T: error: make sure to name your task (--task)\n");
+		fprintf(stderr, "everything you do should be worth enough to name it!\n");
+		return 0;
 	}
 
 	intro(&ft);
