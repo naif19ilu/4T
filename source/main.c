@@ -33,9 +33,6 @@ struct font
 #include "fonts/rectangles.inc"
 #include "fonts/short.inc"
 
-// #include "fonts/small.inc"
-// #include "fonts/wavy.inc"
-
 struct fourt
 {
 	struct termios defterm;
@@ -164,14 +161,16 @@ static void start_clock (struct fourt *fourt)
 
 	draw_colons(&fourt->font, start_r, start_c);
 
+	int hr = -1, min = -1;
+
 	while ((seconds > 0) && ((quit = getchar()) != 'q'))
 	{
-		const unsigned int h = seconds / 3600;
-		const unsigned int m = (seconds % 3600) / 60;
-		const unsigned int s = (seconds % 60);
+		const int h = seconds / 3600;
+		const int m = (seconds % 3600) / 60;
+		const int s = (seconds % 60);
 
-		display_pair(&fourt->font, h, time_t_hours  , start_r, start_c);
-		display_pair(&fourt->font, m, time_t_minutes, start_r, start_c);
+		if (h != hr)  { display_pair(&fourt->font, h, time_t_hours  , start_r, start_c); hr = h;  }
+		if (m != min) { display_pair(&fourt->font, m, time_t_minutes, start_r, start_c); min = m; }
 		display_pair(&fourt->font, s, time_t_seconds, start_r, start_c);
 
 		sleep(1);
@@ -185,16 +184,14 @@ static void pick_font (struct font *font, const char *asked)
 	 * so we do not need to compare at most N bytes
 	 */
 	     if (!strcmp(asked, "rectangles")) { *font = f_rectangles; }
-	else if (!strcmp(asked, "hollywood"))  { *font = f_hollywood; }
-	else if (!strcmp(asked, "bulbhead"))   { *font = f_bulbhead; }
-	else if (!strcmp(asked, "fraktur"))    { *font = f_fraktur; }
-	else if (!strcmp(asked, "larry3d"))    { *font = f_larry3d; }
-	else if (!strcmp(asked, "braced"))     { *font = f_braced; }
-	else if (!strcmp(asked, "short"))      { *font = f_short; }
-	else if (!strcmp(asked, "raw"))        { *font = f_raw; }
-
-
-	else { *font = f_bulbhead; }
+	else if (!strcmp(asked, "hollywood"))  { *font = f_hollywood;  }
+	else if (!strcmp(asked, "bulbhead"))   { *font = f_bulbhead;   }
+	else if (!strcmp(asked, "fraktur"))    { *font = f_fraktur;    }
+	else if (!strcmp(asked, "larry3d"))    { *font = f_larry3d;    }
+	else if (!strcmp(asked, "braced"))     { *font = f_braced;     }
+	else if (!strcmp(asked, "short"))      { *font = f_short;      }
+	else if (!strcmp(asked, "raw"))        { *font = f_raw;        }
+	else                                   { *font = f_bulbhead;   }
 }
 
 static void draw_colons (struct font *font, const unsigned int start_r, const unsigned int start_c)
