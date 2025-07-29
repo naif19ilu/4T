@@ -9,7 +9,7 @@
 #include <sys/ioctl.h>
 
 #define DESC          "4T   [-t <task>] [flags]"
-#define WIDEST_FONT   7
+#define WIDEST_FONT   17
 #define SET_SIZE      11
 
 #define FD_STDOUT     1
@@ -24,8 +24,17 @@ struct font
 	unsigned char rows, cols;
 };
 
+#include "fonts/braced.inc"
 #include "fonts/bulbhead.inc"
+#include "fonts/fraktur.inc"
+#include "fonts/hollywood.inc"
+#include "fonts/larry3d.inc"
 #include "fonts/raw.inc"
+#include "fonts/rectangles.inc"
+#include "fonts/short.inc"
+
+// #include "fonts/small.inc"
+// #include "fonts/wavy.inc"
 
 struct fourt
 {
@@ -175,8 +184,16 @@ static void pick_font (struct font *font, const char *asked)
 	/* Whatever is given to you via argv is null terminated
 	 * so we do not need to compare at most N bytes
 	 */
-	if (!strcmp(asked, "bulbhead")) { *font = f_bulbhead; }
-	else if (!strcmp(asked, "raw")) { *font = f_raw; }
+	     if (!strcmp(asked, "rectangles")) { *font = f_rectangles; }
+	else if (!strcmp(asked, "hollywood"))  { *font = f_hollywood; }
+	else if (!strcmp(asked, "bulbhead"))   { *font = f_bulbhead; }
+	else if (!strcmp(asked, "fraktur"))    { *font = f_fraktur; }
+	else if (!strcmp(asked, "larry3d"))    { *font = f_larry3d; }
+	else if (!strcmp(asked, "braced"))     { *font = f_braced; }
+	else if (!strcmp(asked, "short"))      { *font = f_short; }
+	else if (!strcmp(asked, "raw"))        { *font = f_raw; }
+
+
 	else { *font = f_bulbhead; }
 }
 
@@ -221,20 +238,17 @@ static void display_pair (struct font *font, const unsigned int left, const enum
 
 static void display_font_names (void)
 {
-	const unsigned int no = 11;
+	const unsigned int no = 8;
 	static const char *const fonts[] =
 	{
 		"braced",
 		"bulbhead (default)",
 		"fraktur",
 		"hollywood",
-		"italic",
 		"larry3d",
 		"raw",
 		"rectangles",
 		"short",
-		"small",
-		"wavy"
 	};
 
 	printf("\n\t4T List of fonts available!\n");
