@@ -9,7 +9,7 @@
 #include <sys/ioctl.h>
 
 #define DESC          "4T   [-t <task>] [flags]"
-#define WIDEST_FONT   8
+#define WIDEST_FONT   7
 #define SET_SIZE      11
 
 #define FD_STDOUT     1
@@ -40,11 +40,21 @@ struct fourt
 	} args;
 };
 
+enum time_type
+{
+	time_t_seconds,
+	time_t_minutes,
+	time_t_hours
+};
+
 static void intro (struct fourt*);
 static void outro (struct fourt*);
 
 static void start_clock (struct fourt*);
 static void pick_font (struct font*, const char*);
+
+static void draw_colons (struct font*, const unsigned int, const unsigned int);
+static void display_pair (struct font*, const unsigned int, const enum time_type, const unsigned int, const unsigned int);
 
 int main (int argc, char **argv)
 {
@@ -130,15 +140,21 @@ static void start_clock (struct fourt *fourt)
 	unsigned int seconds = (unsigned int) fourt->args.time * 60;
 	pick_font(&fourt->font, fourt->args.font);
 
-	char quit = getchar();
+	char quit;
+	const unsigned int start_r = ((fourt->wrows - fourt->font.rows    ) >> 1);
+	const unsigned int start_c = ((fourt->wcols - fourt->font.cols * 8) >> 1);
+
+	draw_colons(&fourt->font, start_r, start_c);
+
 	while ((seconds > 0) && ((quit = getchar()) != 'q'))
 	{
 		const unsigned int h = seconds / 3600;
 		const unsigned int m = (seconds % 3600) / 60;
 		const unsigned int s = (seconds % 60);
 
-		    printf("\r%02d:%02d:%02d", h, m, s);
-			fflush(stdout);
+		display_pair(&fourt->font, h, time_t_hours  , start_r, start_c);
+		display_pair(&fourt->font, m, time_t_minutes, start_r, start_c);
+		display_pair(&fourt->font, s, time_t_seconds, start_r, start_c);
 
 		sleep(1);
 		seconds--;
@@ -152,4 +168,43 @@ static void pick_font (struct font *font, const char *asked)
 	 */
 	if (strcmp(asked, "bulbhead")) { *font = f_bulbhead; }
 	else { *font = f_bulbhead; }
+}
+
+static void draw_colons (struct font *font, const unsigned int start_r, const unsigned int start_c)
+{
+	unsigned int coffset = start_c + font->cols * 2;
+
+	for (unsigned char i = 0; i < 2; i++)
+	{
+		for (unsigned short line = 0; line < font->rows; line++)
+		{
+			printf("\x1b[%d;%dH%s", start_r + line, coffset, font->set[10][line]);
+		}
+		coffset += font->cols * 3;
+	}
+}
+
+static void display_pair (struct font *font, const unsigned int left, const enum time_type kind, const unsigned int start_r, const unsigned int start_c)
+{
+	const unsigned int d1 = left / 10;
+	const unsigned int d2 = left % 10;
+
+	unsigned int coffset = start_c;
+	switch (kind)
+	{
+		case time_t_hours:   break;
+		case time_t_minutes: coffset += font->cols * 3; break;
+		case time_t_seconds: coffset += font->cols * 6; break;
+	}
+
+	for (register char i = 0; i < 2; i++)
+	{
+		for (unsigned short line = 0; line < font->rows; line++)
+		{
+			printf("\x1b[%d;%dH%s%s", start_r + line, coffset, font->set[d1][line], font->set[d2][line]);
+			fflush(stdout);
+		}
+	}
+
+	if (kind == time_t_seconds) { return; }
 }
