@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <string.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <termios.h>
 #include <sys/ioctl.h>
@@ -58,12 +59,13 @@ static void intro (struct fourt*);
 static void outro (struct fourt*);
 
 static void start_clock (struct fourt*);
-static void pick_font (struct font*, const char*);
+static bool pick_font (struct font*, const char*);
 
 static void draw_colons (struct font*, const unsigned int, const unsigned int);
 static void display_pair (struct font*, const unsigned int, const enum time_type, const unsigned int, const unsigned int);
 
 static void display_font_names (void);
+static void do_preview (const char*);
 
 int main (int argc, char **argv)
 {
@@ -76,21 +78,19 @@ int main (int argc, char **argv)
 	struct CxaFlag flags[] =
 	{
 		CXA_SET_STR("task", "task you'll be working on",      &ft.args.task, CXA_FLAG_TAKER_YES, 't'),
-		CXA_SET_STR("font", "font to display time left",      &ft.args.font, CXA_FLAG_TAKER_MAY, 'f'),
+		CXA_SET_STR("font", "font to display time left",      &ft.args.font, CXA_FLAG_TAKER_YES, 'f'),
 		CXA_SET_STR("info", "display info about a task",      &ft.args.task, CXA_FLAG_TAKER_MAY, 'i'),
 		CXA_SET_STR("prev", "preview font (needs font name)", &ft.args.font, CXA_FLAG_TAKER_YES, 'p'),
-		CXA_SET_INT("time", "time you'll work (30 default)",  &ft.args.time, CXA_FLAG_TAKER_MAY, 'T'),
+		CXA_SET_INT("time", "time you'll work (30 default)",  &ft.args.time, CXA_FLAG_TAKER_YES, 'T'),
 		CXA_SET_CHR("help", "display this message :)",        NULL,          CXA_FLAG_TAKER_NON, 'h'),
 		CXA_SET_CHR("list", "list font names",                NULL,          CXA_FLAG_TAKER_NON, 'L'),
 		CXA_SET_END
 	};
 
 	cxa_clean(cxa_execute((unsigned char) argc, argv, flags, "4T"));
-	if (flags[6].meta & CXA_FLAG_SEEN_MASK)
-	{
-		display_font_names();
-		return 0;
-	}
+
+	if (flags[6].meta & CXA_FLAG_SEEN_MASK) { display_font_names(); return 0; }
+	if (flags[3].meta & CXA_FLAG_SEEN_MASK) { do_preview(ft.args.font); return 0; }
 
 	if ((ft.args.task == NULL) || (flags[4].meta & CXA_FLAG_SEEN_MASK))
 	{
@@ -178,20 +178,20 @@ static void start_clock (struct fourt *fourt)
 	}
 }
 
-static void pick_font (struct font *font, const char *asked)
+static bool pick_font (struct font *font, const char *asked)
 {
 	/* Whatever is given to you via argv is null terminated
 	 * so we do not need to compare at most N bytes
 	 */
-	     if (!strcmp(asked, "rectangles")) { *font = f_rectangles; }
-	else if (!strcmp(asked, "hollywood"))  { *font = f_hollywood;  }
-	else if (!strcmp(asked, "bulbhead"))   { *font = f_bulbhead;   }
-	else if (!strcmp(asked, "fraktur"))    { *font = f_fraktur;    }
-	else if (!strcmp(asked, "larry3d"))    { *font = f_larry3d;    }
-	else if (!strcmp(asked, "braced"))     { *font = f_braced;     }
-	else if (!strcmp(asked, "short"))      { *font = f_short;      }
-	else if (!strcmp(asked, "raw"))        { *font = f_raw;        }
-	else                                   { *font = f_bulbhead;   }
+	     if (!strcmp(asked, "rectangles")) { *font = f_rectangles; return true;  }
+	else if (!strcmp(asked, "hollywood"))  { *font = f_hollywood;  return true;  }
+	else if (!strcmp(asked, "bulbhead"))   { *font = f_bulbhead;   return true;  }
+	else if (!strcmp(asked, "fraktur"))    { *font = f_fraktur;    return true;  }
+	else if (!strcmp(asked, "larry3d"))    { *font = f_larry3d;    return true;  }
+	else if (!strcmp(asked, "braced"))     { *font = f_braced;     return true;  }
+	else if (!strcmp(asked, "short"))      { *font = f_short;      return true;  }
+	else if (!strcmp(asked, "raw"))        { *font = f_raw;        return true;  }
+	else                                   { *font = f_bulbhead;   return false; }
 }
 
 static void draw_colons (struct font *font, const unsigned int start_r, const unsigned int start_c)
@@ -229,8 +229,6 @@ static void display_pair (struct font *font, const unsigned int left, const enum
 			fflush(stdout);
 		}
 	}
-
-	if (kind == time_t_seconds) { return; }
 }
 
 static void display_font_names (void)
@@ -254,4 +252,33 @@ static void display_font_names (void)
 		printf("\t - %s\n", fonts[i]);
 	}
 	printf("\tremember to use -f flag to use any of these (-f <font> or --flag=<font> or --flag <font>\n\n");
+}
+
+static void do_preview (const char *of)
+{
+	struct font font;
+	bool exists = pick_font(&font, of);
+
+	printf("\x1b[2J\x1b[H\n4T: preview of '%s' font\n", exists ? of : "bulbhead (wrong name give, so display default)");
+	for (unsigned char i = 0; i < 11; i++)
+	{
+		for (unsigned short line = 0, pl = 4; line < font.rows; line++)
+		{
+			printf("\x1b[%d;4H%s %s %s %s %s %s %s %s %s %s %s",
+			pl++,
+			font.set[ 0][line],
+			font.set[ 1][line],
+			font.set[ 2][line],
+			font.set[ 3][line],
+			font.set[ 4][line],
+			font.set[ 5][line],
+			font.set[ 6][line],
+			font.set[ 7][line],
+			font.set[ 8][line],
+			font.set[ 9][line],
+			font.set[10][line]
+			);
+		}
+	}
+	printf("\n\n");
 }
