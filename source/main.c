@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <string.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
 #include <termios.h>
@@ -11,7 +12,7 @@
 
 #define DESC          "4T   [-t <task>] [flags]"
 #define WIDEST_FONT   17
-#define SET_SIZE      11
+#define ALPHA_SIZE    11
 
 #define FD_STDOUT     1
 #define FD_STDIN      0
@@ -21,7 +22,7 @@
 
 struct font
 {
-	char *set[SET_SIZE][WIDEST_FONT];
+	char *set[ALPHA_SIZE][WIDEST_FONT];
 	unsigned char rows, cols;
 };
 
@@ -55,6 +56,31 @@ enum time_type
 	time_t_hours
 };
 
+inline static void get_terminal_dimensions (unsigned int *rows, unsigned int *cols)
+{
+	struct winsize w;
+	ioctl(FD_STDOUT, TIOCGWINSZ, &w);	
+	*rows = (unsigned int) w.ws_row;
+	*cols = (unsigned int) w.ws_col;
+}
+
+inline static void check_space_is_enough (const unsigned int tr, const unsigned int tc, const struct font *f)
+{
+	const unsigned int colsed = (f->cols + 1) * ALPHA_SIZE;
+
+	if ((f->rows < tr) && (colsed < tc))
+	{
+		return;
+	}
+
+	fprintf(stderr, "4T: error: terminal dimensions are not big enough to render\n");
+	fprintf(stderr, " solutions:\n");
+	fprintf(stderr, "  1. increase the terminal size.\n");
+	fprintf(stderr, "  2. decrease the font size.\n");
+	fprintf(stderr, "  3. use silent mode (-S unless -p is active).\n");
+	exit(0);
+}
+
 static void intro (struct fourt*);
 static void outro (struct fourt*);
 
@@ -77,13 +103,14 @@ int main (int argc, char **argv)
 
 	struct CxaFlag flags[] =
 	{
-		CXA_SET_STR("task", "task you'll be working on",      &ft.args.task, CXA_FLAG_TAKER_YES, 't'),
-		CXA_SET_STR("font", "font to display time left",      &ft.args.font, CXA_FLAG_TAKER_YES, 'f'),
-		CXA_SET_STR("info", "display info about a task",      &ft.args.task, CXA_FLAG_TAKER_MAY, 'i'),
-		CXA_SET_STR("prev", "preview font (needs font name)", &ft.args.font, CXA_FLAG_TAKER_YES, 'p'),
-		CXA_SET_INT("time", "time you'll work (30 default)",  &ft.args.time, CXA_FLAG_TAKER_YES, 'T'),
-		CXA_SET_CHR("help", "display this message :)",        NULL,          CXA_FLAG_TAKER_NON, 'h'),
-		CXA_SET_CHR("list", "list font names",                NULL,          CXA_FLAG_TAKER_NON, 'L'),
+		CXA_SET_STR("task",   "task you'll be working on",      &ft.args.task, CXA_FLAG_TAKER_YES, 't'),
+		CXA_SET_STR("font",   "font to display time left",      &ft.args.font, CXA_FLAG_TAKER_YES, 'f'),
+		CXA_SET_STR("info",   "display info about a task",      &ft.args.task, CXA_FLAG_TAKER_MAY, 'i'),
+		CXA_SET_STR("prev",   "preview font (needs font name)", &ft.args.font, CXA_FLAG_TAKER_YES, 'p'),
+		CXA_SET_INT("time",   "time you'll work (30 default)",  &ft.args.time, CXA_FLAG_TAKER_YES, 'T'),
+		CXA_SET_CHR("help",   "display this message :)",        NULL,          CXA_FLAG_TAKER_NON, 'h'),
+		CXA_SET_CHR("list",   "list font names",                NULL,          CXA_FLAG_TAKER_NON, 'L'),
+		CXA_SET_CHR("silent", "do not print time left",         NULL,          CXA_FLAG_TAKER_NON, 'S'),
 		CXA_SET_END
 	};
 
@@ -91,7 +118,7 @@ int main (int argc, char **argv)
 
 	if (flags[6].meta & CXA_FLAG_SEEN_MASK)                             { display_font_names();         return 0; }
 	if (flags[3].meta & CXA_FLAG_SEEN_MASK)                             { do_preview(ft.args.font);     return 0; }
-	if ((ft.args.task == NULL) || (flags[4].meta & CXA_FLAG_SEEN_MASK)) { cxa_print_usage(DESC, flags); return 0; }
+	if ((ft.args.task == NULL) || (flags[5].meta & CXA_FLAG_SEEN_MASK)) { cxa_print_usage(DESC, flags); return 0; }
 
 	if (*ft.args.task == 0)
 	{
@@ -108,11 +135,9 @@ int main (int argc, char **argv)
 
 static void intro (struct fourt *ft)
 {
-	struct winsize w;
-	ioctl(FD_STDOUT, TIOCGWINSZ, &w);
-	
-	ft->wrows = (unsigned int) w.ws_row;
-	ft->wcols = (unsigned int) w.ws_col;
+	get_terminal_dimensions(&ft->wrows, &ft->wcols);
+	pick_font(&ft->font, ft->args.font);
+	check_space_is_enough(ft->wrows, ft->wcols, &ft->font);
 
 	printf("\x1b[2J\x1b[H\x1b[0\x1b[?25l");
 	fflush(stdout);
@@ -147,16 +172,14 @@ static void outro (struct fourt *ft)
 {
 	fcntl(FD_STDIN, F_SETFL, ft->flags);
 	tcsetattr(FD_STDIN, TCSANOW, &ft->defterm);
-	printf("\x1b[?25h");
+	printf("\x1b[H\x1b[2J\x1b[?25h");
 	fflush(stdout);
 }
 
 static void start_clock (struct fourt *fourt)
 {
 	if (fourt->args.time <= 0) { fourt->args.time = DEFAULT_T; }
-
 	unsigned int seconds = (unsigned int) fourt->args.time * 60;
-	pick_font(&fourt->font, fourt->args.font);
 
 	char quit;
 	const unsigned int start_r = ((fourt->wrows - fourt->font.rows    ) >> 1);
@@ -164,13 +187,12 @@ static void start_clock (struct fourt *fourt)
 
 	draw_colons(&fourt->font, start_r, start_c);
 
-	int hr = -1, min = -1;
-
+	signed int hr = -1, min = -1;
 	while ((seconds > 0) && ((quit = getchar()) != 'q'))
 	{
-		const int h = seconds / 3600;
-		const int m = (seconds % 3600) / 60;
-		const int s = (seconds % 60);
+		const signed int h = seconds / 3600;
+		const signed int m = (seconds % 3600) / 60;
+		const signed int s = (seconds % 60);
 
 		if (h != hr)  { display_pair(&fourt->font, h, time_t_hours  , start_r, start_c); hr = h;  }
 		if (m != min) { display_pair(&fourt->font, m, time_t_minutes, start_r, start_c); min = m; }
@@ -246,23 +268,25 @@ static void display_font_names (void)
 		"larry3d",
 		"raw",
 		"rectangles",
-		"short",
+		"short"
 	};
 
 	printf("\n\t4T List of fonts available!\n");
-	for (unsigned int i = 0; i < no; i++)
-	{
-		printf("\t - %s\n", fonts[i]);
-	}
+	for (unsigned int i = 0; i < no; i++) { printf("\t - %s\n", fonts[i]); }
+
 	printf("\tremember to use -f flag to use any of these (-f <font> or --flag=<font> or --flag <font>\n\n");
 }
 
 static void do_preview (const char *of)
 {
 	struct font font;
-	bool exists = pick_font(&font, of);
+	unsigned int rows, cols;
+	get_terminal_dimensions(&rows, &cols);
 
-	printf("\x1b[2J\x1b[H\n4T: preview of '%s' font\n", exists ? of : "bulbhead (wrong name give, so display default)");
+	const bool exists = pick_font(&font, of);
+	check_space_is_enough(rows, cols, &font);
+
+	printf("\x1b[2J\x1b[H\n4T: preview of '%s' font\n", exists ? of : "bulbhead (wrong name given, so displaying default)");
 	for (unsigned char i = 0; i < 11; i++)
 	{
 		for (unsigned short line = 0, pl = 4; line < font.rows; line++)
