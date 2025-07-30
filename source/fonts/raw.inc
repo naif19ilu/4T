@@ -1,3 +1,8 @@
+/* 4T - Terminal Task Time Tracker
+ * 29 Jul 2025
+ * 'raw' font
+ */
+
 static const struct font f_raw =
 {
 	.set =

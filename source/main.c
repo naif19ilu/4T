@@ -1,3 +1,7 @@
+/* 4T - Terminal Task Time Tracker
+ * 29 Jul 2025
+ * main file
+ */
 #include "cxa.h"
 
 #include <time.h>
@@ -13,6 +17,7 @@
 #define DESC          "4T   [-t <task>] [flags]"
 #define WIDEST_FONT   17
 #define ALPHA_SIZE    11
+#define CHARS_DISPL   8
 
 #define FD_STDOUT     1
 #define FD_STDIN      0
@@ -64,9 +69,9 @@ inline static void get_terminal_dimensions (unsigned int *rows, unsigned int *co
 	*cols = (unsigned int) w.ws_col;
 }
 
-inline static void check_space_is_enough (const unsigned int tr, const unsigned int tc, const struct font *f)
+inline static void check_space_is_enough (const unsigned int tr, const unsigned int tc, const struct font *f, const short factor)
 {
-	const unsigned int colsed = (f->cols + 1) * ALPHA_SIZE;
+	const unsigned int colsed = (f->cols + 1) * factor;
 
 	if ((f->rows < tr) && (colsed < tc))
 	{
@@ -87,7 +92,7 @@ static void outro (struct fourt*);
 static void start_clock (struct fourt*);
 static bool pick_font (struct font*, const char*);
 
-static void draw_colons (struct font*, const unsigned int, const unsigned int);
+static void display_constant_stuff (struct font*, const unsigned int, const unsigned int, const char*);
 static void display_pair (struct font*, const unsigned int, const enum time_type, const unsigned int, const unsigned int);
 
 static void display_font_names (void);
@@ -137,7 +142,7 @@ static void intro (struct fourt *ft)
 {
 	get_terminal_dimensions(&ft->wrows, &ft->wcols);
 	pick_font(&ft->font, ft->args.font);
-	check_space_is_enough(ft->wrows, ft->wcols, &ft->font);
+	check_space_is_enough(ft->wrows, ft->wcols, &ft->font, CHARS_DISPL);
 
 	printf("\x1b[2J\x1b[H\x1b[0\x1b[?25l");
 	fflush(stdout);
@@ -182,10 +187,10 @@ static void start_clock (struct fourt *fourt)
 	unsigned int seconds = (unsigned int) fourt->args.time * 60;
 
 	char quit;
-	const unsigned int start_r = ((fourt->wrows - fourt->font.rows    ) >> 1);
-	const unsigned int start_c = ((fourt->wcols - fourt->font.cols * 8) >> 1);
+	const unsigned int start_r = ((fourt->wrows - fourt->font.rows              ) >> 1);
+	const unsigned int start_c = ((fourt->wcols - fourt->font.cols * CHARS_DISPL) >> 1);
 
-	draw_colons(&fourt->font, start_r, start_c);
+	display_constant_stuff(&fourt->font, start_r, start_c, fourt->args.task);
 
 	signed int hr = -1, min = -1;
 	while ((seconds > 0) && ((quit = getchar()) != 'q'))
@@ -219,18 +224,23 @@ static bool pick_font (struct font *font, const char *asked)
 	else                                   { *font = f_bulbhead;   return false; }
 }
 
-static void draw_colons (struct font *font, const unsigned int start_r, const unsigned int start_c)
+static void display_constant_stuff (struct font *font, const unsigned int start_r, const unsigned int start_c, const char *task)
 {
 	unsigned int coffset = start_c + font->cols * 2;
-
 	for (unsigned char i = 0; i < 2; i++)
 	{
 		for (unsigned short line = 0; line < font->rows; line++)
 		{
-			printf("\x1b[%d;%dH%s", start_r + line, coffset, font->set[10][line]);
+			printf("\x1b[2m\x1b[%d;%dH%s\x1b[0m", start_r + line, coffset, font->set[10][line]);
 		}
 		coffset += font->cols * 3;
 	}
+
+	const unsigned int taskrow = start_r + font->rows + 2;
+	const unsigned int taskcol = start_c;
+
+	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m", taskrow, taskcol, task);
+	printf("\x1b[%d;%dH\x1b[2mpress 'q' to quit and save!\x1b[0m", taskrow + 1, taskcol);
 }
 
 static void display_pair (struct font *font, const unsigned int left, const enum time_type kind, const unsigned int start_r, const unsigned int start_c)
@@ -284,7 +294,7 @@ static void do_preview (const char *of)
 	get_terminal_dimensions(&rows, &cols);
 
 	const bool exists = pick_font(&font, of);
-	check_space_is_enough(rows, cols, &font);
+	check_space_is_enough(rows, cols, &font, ALPHA_SIZE);
 
 	printf("\x1b[2J\x1b[H\n4T: preview of '%s' font\n", exists ? of : "bulbhead (wrong name given, so displaying default)");
 	for (unsigned char i = 0; i < 11; i++)

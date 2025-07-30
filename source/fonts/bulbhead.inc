@@ -1,3 +1,8 @@
+/* 4T - Terminal Task Time Tracker
+ * 29 Jul 2025
+ * 'bulbhead' font
+ */
+
 static const struct font f_bulbhead =
 {
 	.set =
