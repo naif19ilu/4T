@@ -25,6 +25,8 @@
 #define DEFAULT_T     30
 #define DEFAULT_f     "bulbhead"
 
+#define NO_READS      17
+
 struct font
 {
 	char *set[ALPHA_SIZE][WIDEST_FONT];
@@ -45,6 +47,7 @@ struct fourt
 	struct termios defterm;
 	struct font    font;
 	unsigned int   wcols, wrows;
+	unsigned int   secworked;
 	int            flags;
 
 	struct
@@ -59,6 +62,27 @@ enum time_type
 	time_t_seconds,
 	time_t_minutes,
 	time_t_hours
+};
+
+static const char *const Reads[NO_READS] =
+{
+	"tengo reloj, no me interesa el tiempo porque se va y ya no puedo detenerlo",
+	"el paso de las horas un delito sin culpable",
+	"au fait, qui est ce qui dessine les nuages?",
+	"no me soya la playa pero aqui estamos, a veces no escogemos donde terminamos",
+	"hasta luego...",
+	"ya va'ber tiempo pa' pensar, hoy solo queda reaccionar a 'como fue?'",
+	"soulless friends <3",
+	"...je veux vivre (2/2)",
+	"el tiempo ni se gana ni se pierde",
+	"aqui no se aceptan limites",
+	"un jour, algun dia, one day",
+	"lo esencial es invisible ante los ojos",
+	"felices no estamos, pero estamos y es mas que algo",
+	"no one else can do what you're here to do",
+	"happy seeing you working :)",
+	"voy a ser mejor que el que esta haciendo esto",
+	"happy little clouds..."
 };
 
 inline static void get_terminal_dimensions (unsigned int *rows, unsigned int *cols)
@@ -82,14 +106,13 @@ inline static void check_space_is_enough (const unsigned int tr, const unsigned 
 	fprintf(stderr, " solutions:\n");
 	fprintf(stderr, "  1. increase the terminal size.\n");
 	fprintf(stderr, "  2. decrease the font size.\n");
-	fprintf(stderr, "  3. use silent mode (-S unless -p is active).\n");
 	exit(0);
 }
 
 static void intro (struct fourt*);
 static void outro (struct fourt*);
 
-static void start_clock (struct fourt*);
+static void start_clock (struct fourt*, const signed int);
 static bool pick_font (struct font*, const char*);
 
 static void display_constant_stuff (struct font*, const unsigned int, const unsigned int, const char*);
@@ -110,12 +133,12 @@ int main (int argc, char **argv)
 	{
 		CXA_SET_STR("task",   "task you'll be working on",      &ft.args.task, CXA_FLAG_TAKER_YES, 't'),
 		CXA_SET_STR("font",   "font to display time left",      &ft.args.font, CXA_FLAG_TAKER_YES, 'f'),
-		CXA_SET_STR("info",   "display info about a task",      &ft.args.task, CXA_FLAG_TAKER_MAY, 'i'),
+		CXA_SET_STR("info",   "display info about a task",      &ft.args.task, CXA_FLAG_TAKER_MAY, 'i'),		// TODO
 		CXA_SET_STR("prev",   "preview font (needs font name)", &ft.args.font, CXA_FLAG_TAKER_YES, 'p'),
 		CXA_SET_INT("time",   "time you'll work (30 default)",  &ft.args.time, CXA_FLAG_TAKER_YES, 'T'),
 		CXA_SET_CHR("help",   "display this message :)",        NULL,          CXA_FLAG_TAKER_NON, 'h'),
 		CXA_SET_CHR("list",   "list font names",                NULL,          CXA_FLAG_TAKER_NON, 'L'),
-		CXA_SET_CHR("silent", "do not print time left",         NULL,          CXA_FLAG_TAKER_NON, 'S'),
+		CXA_SET_CHR("undef",  "undefined time working",         NULL,          CXA_FLAG_TAKER_NON, 'u'),
 		CXA_SET_END
 	};
 
@@ -133,8 +156,9 @@ int main (int argc, char **argv)
 	}
 
 	intro(&ft);
-	start_clock(&ft);
+	start_clock(&ft, ((flags[7].meta & CXA_FLAG_SEEN_MASK) == CXA_FLAG_WAS_SEEN) ? 1 : -1);
 	outro(&ft);
+	printf("worked: %d\n", ft.secworked);
 	return 0;
 }
 
@@ -181,30 +205,33 @@ static void outro (struct fourt *ft)
 	fflush(stdout);
 }
 
-static void start_clock (struct fourt *fourt)
+static void start_clock (struct fourt *fourt, const signed int dt)
 {
 	if (fourt->args.time <= 0) { fourt->args.time = DEFAULT_T; }
-	unsigned int seconds = (unsigned int) fourt->args.time * 60;
+	unsigned int spssdby = (dt == -1) ? (unsigned int) fourt->args.time * 60 : 0;
 
 	char quit;
 	const unsigned int start_r = ((fourt->wrows - fourt->font.rows              ) >> 1);
 	const unsigned int start_c = ((fourt->wcols - fourt->font.cols * CHARS_DISPL) >> 1);
 
 	display_constant_stuff(&fourt->font, start_r, start_c, fourt->args.task);
-
 	signed int hr = -1, min = -1;
-	while ((seconds > 0) && ((quit = getchar()) != 'q'))
+
+	while ((quit = getchar()) != 'q')
 	{
-		const signed int h = seconds / 3600;
-		const signed int m = (seconds % 3600) / 60;
-		const signed int s = (seconds % 60);
+		const signed int h = spssdby / 3600;
+		const signed int m = (spssdby % 3600) / 60;
+		const signed int s = (spssdby % 60);
 
 		if (h != hr)  { display_pair(&fourt->font, h, time_t_hours  , start_r, start_c); hr = h;  }
 		if (m != min) { display_pair(&fourt->font, m, time_t_minutes, start_r, start_c); min = m; }
 		display_pair(&fourt->font, s, time_t_seconds, start_r, start_c);
 
 		sleep(1);
-		seconds--;
+		spssdby += dt;
+		fourt->secworked++;
+
+		if (spssdby == 0) break;
 	}
 }
 
@@ -241,6 +268,10 @@ static void display_constant_stuff (struct font *font, const unsigned int start_
 
 	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m", taskrow, taskcol, task);
 	printf("\x1b[%d;%dH\x1b[2mpress 'q' to quit and save!\x1b[0m", taskrow + 1, taskcol);
+
+	srand(time(NULL));
+	const unsigned int readp = (rand() % NO_READS);
+	printf("\x1b[%d;%dH\x1b[2m\x1b[5m%s\x1b[0m", taskrow + 2, taskcol, Reads[readp]);
 }
 
 static void display_pair (struct font *font, const unsigned int left, const enum time_type kind, const unsigned int start_r, const unsigned int start_c)
