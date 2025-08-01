@@ -210,28 +210,37 @@ static void start_clock (struct fourt *fourt, const signed int dt)
 	if (fourt->args.time <= 0) { fourt->args.time = DEFAULT_T; }
 	unsigned int spssdby = (dt == -1) ? (unsigned int) fourt->args.time * 60 : 0;
 
-	char quit;
+	char key;
 	const unsigned int start_r = ((fourt->wrows - fourt->font.rows              ) >> 1);
 	const unsigned int start_c = ((fourt->wcols - fourt->font.cols * CHARS_DISPL) >> 1);
 
 	display_constant_stuff(&fourt->font, start_r, start_c, fourt->args.task);
 	signed int hr = -1, min = -1;
 
-	while ((quit = getchar()) != 'q')
+	bool working = true, paused = false;
+	while (working)
 	{
-		const signed int h = spssdby / 3600;
-		const signed int m = (spssdby % 3600) / 60;
-		const signed int s = (spssdby % 60);
+		if (!paused)
+		{
+			const signed int h = spssdby / 3600;
+			const signed int m = (spssdby % 3600) / 60;
+			const signed int s = (spssdby % 60);
 
-		if (h != hr)  { display_pair(&fourt->font, h, time_t_hours  , start_r, start_c); hr = h;  }
-		if (m != min) { display_pair(&fourt->font, m, time_t_minutes, start_r, start_c); min = m; }
-		display_pair(&fourt->font, s, time_t_seconds, start_r, start_c);
+			if (h != hr)  { display_pair(&fourt->font, h, time_t_hours  , start_r, start_c); hr = h;  }
+			if (m != min) { display_pair(&fourt->font, m, time_t_minutes, start_r, start_c); min = m; }
+			display_pair(&fourt->font, s, time_t_seconds, start_r, start_c);
 
-		sleep(1);
-		spssdby += dt;
-		fourt->secworked++;
+			sleep(1);
+			spssdby += dt;
+			fourt->secworked++;
+		}
 
-		if (spssdby == 0) break;
+		if (spssdby == 0) { working = false; }
+		switch ((key = getchar()))
+		{
+			case 'q': { working = false; break; }
+			case ' ': { paused = !paused; break; }
+		}
 	}
 }
 
