@@ -235,6 +235,8 @@ static void start_clock (struct fourt *fourt, const signed int dt)
 	signed int hr = -1, min = -1;
 
 	bool working = true, paused = false;
+	bool need2render = false;
+
 	while (working && !WannaQuitViaSignal)
 	{
 		if (TerminalResized)
@@ -248,8 +250,8 @@ static void start_clock (struct fourt *fourt, const signed int dt)
 			start_c = ((fourt->wcols - fourt->font.cols * CHARS_DISPL) >> 1);
 			display_constant_stuff(&fourt->font, start_r, start_c, fourt->args.task);
 
-
 			TerminalResized = false;
+			need2render = true;
 			continue;
 		}
 		if (!paused)
@@ -258,11 +260,12 @@ static void start_clock (struct fourt *fourt, const signed int dt)
 			const signed int m = (spssdby % 3600) / 60;
 			const signed int s = (spssdby % 60);
 
-			if (h != hr)  { display_pair(&fourt->font, h, time_t_hours  , start_r, start_c); hr = h;  }
-			if (m != min) { display_pair(&fourt->font, m, time_t_minutes, start_r, start_c); min = m; }
-			display_pair(&fourt->font, s, time_t_seconds, start_r, start_c);
+			if ((h != hr ) || need2render)  { display_pair(&fourt->font, h, time_t_hours  , start_r, start_c); hr = h;  }
+			if ((m != min) || need2render)  { display_pair(&fourt->font, m, time_t_minutes, start_r, start_c); min = m; need2render = false; }
 
+			display_pair(&fourt->font, s, time_t_seconds, start_r, start_c);
 			sleep(1);
+
 			spssdby += dt;
 			fourt->secworked++;
 		}
@@ -406,6 +409,7 @@ static void setup_signals (void)
 	sigret = sigaction(SIGQUIT,  &sa, NULL);
 	sigret = sigaction(SIGTERM,  &sa, NULL);
 	sigret = sigaction(SIGWINCH, &sa, NULL);
+	sigret = sigaction(SIGTSTP,  &sa, NULL);
 
 	if (sigret)
 	{
