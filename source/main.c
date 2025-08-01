@@ -4,10 +4,13 @@
  */
 #include "cxa.h"
 
+#include <err.h>
 #include <time.h>
 #include <stdio.h>
+#include <errno.h> 
 #include <fcntl.h>
 #include <string.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
@@ -27,10 +30,15 @@
 
 #define NO_READS      17
 
+/* Number of lines used to display name of the task,
+ * message and quote plus 2 blank lines
+ */
+#define CTE_LINES     5
+
 struct font
 {
 	char *set[ALPHA_SIZE][WIDEST_FONT];
-	unsigned char rows, cols;
+	unsigned short rows, cols;
 };
 
 #include "fonts/braced.inc"
@@ -48,7 +56,7 @@ struct fourt
 	struct font    font;
 	unsigned int   wcols, wrows;
 	unsigned int   secworked;
-	int            flags;
+	int            stdflags;
 
 	struct
 	{
@@ -85,6 +93,9 @@ static const char *const Reads[NO_READS] =
 	"happy little clouds..."
 };
 
+static bool WannaQuitViaSignal = false;
+static bool TerminalResized    = false;
+
 inline static void get_terminal_dimensions (unsigned int *rows, unsigned int *cols)
 {
 	struct winsize w;
@@ -96,8 +107,7 @@ inline static void get_terminal_dimensions (unsigned int *rows, unsigned int *co
 inline static void check_space_is_enough (const unsigned int tr, const unsigned int tc, const struct font *f, const short factor)
 {
 	const unsigned int colsed = (f->cols + 1) * factor;
-
-	if ((f->rows < tr) && (colsed < tc))
+	if (((unsigned int) (f->rows + CTE_LINES) < tr) && (colsed < tc))
 	{
 		return;
 	}
@@ -120,6 +130,9 @@ static void display_pair (struct font*, const unsigned int, const enum time_type
 
 static void display_font_names (void);
 static void do_preview (const char*);
+
+static void setup_signals (void);
+static void signal_hanlder (const int);
 
 int main (int argc, char **argv)
 {
@@ -155,10 +168,14 @@ int main (int argc, char **argv)
 		return 0;
 	}
 
+	setup_signals();
+
 	intro(&ft);
 	start_clock(&ft, ((flags[7].meta & CXA_FLAG_SEEN_MASK) == CXA_FLAG_WAS_SEEN) ? 1 : -1);
+
 	outro(&ft);
 	printf("worked: %d\n", ft.secworked);
+
 	return 0;
 }
 
@@ -177,8 +194,8 @@ static void intro (struct fourt *ft)
 	conf.c_lflag &= ~(ICANON | ECHO);
 	tcsetattr(FD_STDIN, TCSANOW, &conf);
 
-	ft->flags = fcntl(FD_STDIN, F_GETFL);
-	fcntl(FD_STDIN, F_SETFL, ft->flags | O_NONBLOCK);
+	ft->stdflags = fcntl(FD_STDIN, F_GETFL);
+	fcntl(FD_STDIN, F_SETFL, ft->stdflags | O_NONBLOCK);
 
 	const int startingmsglen = 16;
 	const unsigned int drow = (ft->wrows >> 1), dcol = ((ft->wcols - startingmsglen) >> 1);
@@ -199,7 +216,7 @@ static void intro (struct fourt *ft)
 
 static void outro (struct fourt *ft)
 {
-	fcntl(FD_STDIN, F_SETFL, ft->flags);
+	fcntl(FD_STDIN, F_SETFL, ft->stdflags);
 	tcsetattr(FD_STDIN, TCSANOW, &ft->defterm);
 	printf("\x1b[H\x1b[2J\x1b[?25h");
 	fflush(stdout);
@@ -211,15 +228,30 @@ static void start_clock (struct fourt *fourt, const signed int dt)
 	unsigned int spssdby = (dt == -1) ? (unsigned int) fourt->args.time * 60 : 0;
 
 	char key;
-	const unsigned int start_r = ((fourt->wrows - fourt->font.rows              ) >> 1);
-	const unsigned int start_c = ((fourt->wcols - fourt->font.cols * CHARS_DISPL) >> 1);
+	unsigned int start_r = ((fourt->wrows - fourt->font.rows              ) >> 1);
+	unsigned int start_c = ((fourt->wcols - fourt->font.cols * CHARS_DISPL) >> 1);
 
 	display_constant_stuff(&fourt->font, start_r, start_c, fourt->args.task);
 	signed int hr = -1, min = -1;
 
 	bool working = true, paused = false;
-	while (working)
+	while (working && !WannaQuitViaSignal)
 	{
+		if (TerminalResized)
+		{
+			printf("\x1b[2J\x1b[H");
+			get_terminal_dimensions(&fourt->wrows, &fourt->wcols);
+			pick_font(&fourt->font, fourt->args.font);
+			check_space_is_enough(fourt->wrows, fourt->wcols, &fourt->font, CHARS_DISPL);
+
+			start_r = ((fourt->wrows - fourt->font.rows              ) >> 1);
+			start_c = ((fourt->wcols - fourt->font.cols * CHARS_DISPL) >> 1);
+			display_constant_stuff(&fourt->font, start_r, start_c, fourt->args.task);
+
+
+			TerminalResized = false;
+			continue;
+		}
 		if (!paused)
 		{
 			const signed int h = spssdby / 3600;
@@ -238,7 +270,7 @@ static void start_clock (struct fourt *fourt, const signed int dt)
 		if (spssdby == 0) { working = false; }
 		switch ((key = getchar()))
 		{
-			case 'q': { working = false; break; }
+			case 'q': { fourt->secworked--; working = false; break; }
 			case ' ': { paused = !paused; break; }
 		}
 	}
@@ -358,4 +390,37 @@ static void do_preview (const char *of)
 		}
 	}
 	printf("\n\n");
+}
+
+static void setup_signals (void)
+{
+	struct sigaction sa;
+	sa.sa_handler = signal_hanlder;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;
+
+	errno = 0;
+	int sigret = 0;
+	sigret = sigaction(SIGINT,   &sa, NULL);
+	sigret = sigaction(SIGHUP,   &sa, NULL);
+	sigret = sigaction(SIGQUIT,  &sa, NULL);
+	sigret = sigaction(SIGTERM,  &sa, NULL);
+	sigret = sigaction(SIGWINCH, &sa, NULL);
+
+	if (sigret)
+	{
+		err(EXIT_FAILURE, "fatal internal; cannot continue");
+	}
+}
+
+static void signal_hanlder (const int what)
+{
+	switch (what)
+	{
+		case SIGINT:
+		case SIGHUP:
+		case SIGQUIT:
+		case SIGTERM:  { WannaQuitViaSignal = true; break; }
+		case SIGWINCH: { TerminalResized = true;    break; }
+	}
 }
