@@ -51,6 +51,7 @@ struct font
 {
 	char *set[FONT_CHARSET_SIZE][FONT_WIDEST_SYMBOL];
 	unsigned short rows, cols;
+	unsigned short srow, scol;
 };
 
 #include "fonts.inc"
@@ -104,9 +105,9 @@ static void signal_daddy (const int);
 static void task_prelude (const unsigned short, const unsigned);
 
 static void start_timer (struct ft*, const bool, const bool);
-static void render_constants (const struct font*, const unsigned short, const unsigned short);
+static void render_constants (const struct font*);
 
-static void render_dyanmics (const struct font*, const unsigned short, unsigned short, const unsigned int, const enum temps_kind);
+static void render_dyanmics (const struct font*, const unsigned int, const enum temps_kind);
 
 int main (int argc, char **argv)
 {
@@ -120,7 +121,6 @@ int main (int argc, char **argv)
 		CXA_SET_SHT("time",  FLAG_TIME_DESC,  &ft.args.time, CXA_FLAG_TAKER_YES, 'T'),
 		CXA_SET_STR("prev",  FLAG_PREV_DESC,  &ft.args.font, CXA_FLAG_TAKER_MAY, 'p'),
 		CXA_SET_CHR("list",  FLAG_LIST_DESC,  NULL,          CXA_FLAG_TAKER_NON, 'L'),
-
 		CXA_SET_CHR("clock", FLAG_CLOCK_DESC, NULL,          CXA_FLAG_TAKER_NON, 'c'),
 		CXA_SET_CHR("undef", FLAG_UNDEF_DESC, NULL,          CXA_FLAG_TAKER_NON, 'u'),
 
@@ -221,6 +221,14 @@ static void make_sure_content_fits_in (struct ft *ft, const unsigned short setsz
 
 	const unsigned short rowsd = ft->font.rows + erows;
 	const unsigned short colsd = ft->font.cols * setsz + ecols;
+
+	/* even though this should not be here, each time the terminal is resized
+	 * the position where the first character should be displayed needs to be
+	 * recomputed, this function is called each time the terminal is resiszed
+	 * so this is the perfect place
+	 */
+	ft->font.srow = (ft->winrows - ft->font.rows) >> 1;
+	ft->font.scol = (ft->wincols - ft->font.cols * FONT_NO_DISPLAYED_CHARS) >> 1;
 
 	if (rowsd < ft->winrows && colsd < ft->wincols) { return; }
 
@@ -344,72 +352,99 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 {
 	make_sure_content_fits_in(ft, FONT_NO_DISPLAYED_CHARS, EXTRA_RENDERED_LINES, 0, false);
 	task_prelude(ft->winrows, ft->wincols);
+	render_constants(&ft->font);
 
-	unsigned short disrow = (ft->winrows - ft->font.rows) >> 1;
-	unsigned short discol = (ft->wincols - ft->font.cols * FONT_NO_DISPLAYED_CHARS) >> 1;
+	int s_pssdby = ft->args.time * 60, dt = (c_seen || u_seen) ? 1 : -1;
+	int h_render = -1, m_render = -1, s_render = -1;
 
-	render_constants(&ft->font, disrow, discol);
+	if (c_seen)
+	{
+		time_t s1970;
+		time(&s1970);
+		struct tm *temps = localtime(&s1970);
 
-	unsigned int t = ft->args.time * 60;
-	signed int dt = -1;
-
-	if (u_seen) { t = 0; dt = 1; }
-	if (c_seen) { dt = 1; }
-
-	signed int lastm = -1, lasth = -1;
+		h_render = temps->tm_hour;
+		m_render = temps->tm_min;
+		s_render = temps->tm_sec;
+		s_pssdby = temps->tm_sec;
+	}
 
 	while (1)
 	{
-		const char psd = getchar();
-		if (psd == 'q') { break; }
+		const char key = getchar();
+		if (key == ' ') { /* TODO */ }
+		if (key == 'q') { break; }
 
-		const signed int hours = (t / 3600);
-		const signed int minut = (t % 3600) / 60;
-		const signed int secnd = (t % 60);
+		if (c_seen)
+		{
+			s_render = s_pssdby;
+			if (s_render == 60) { s_pssdby = 0; m_render++; }
+			if (m_render == 60) { m_render = 0; h_render++; s_pssdby = 0; }
+			if (h_render == 24) { s_pssdby = 0; m_render = 0; h_render = 0; }
 
-		if (hours != lasth) { render_dyanmics(&ft->font, disrow, discol, hours, temps_is_hours);   lasth = hours; }
-		if (minut != lastm) { render_dyanmics(&ft->font, disrow, discol, minut, temps_is_minutes); lastm = minut; }
-		render_dyanmics(&ft->font, disrow, discol, secnd, temps_is_seconds);
+			render_dyanmics(&ft->font, s_render, temps_is_seconds);
+			render_dyanmics(&ft->font, m_render, temps_is_minutes);
+			render_dyanmics(&ft->font, h_render, temps_is_hours);
+		}
+		else
+		{
+			h_render = (s_pssdby / 3600);
+			m_render = (s_pssdby % 3600) / 60;
+			s_render = (s_pssdby % 60);
+
+			render_dyanmics(&ft->font, s_render, temps_is_seconds);
+			render_dyanmics(&ft->font, m_render, temps_is_minutes);
+			render_dyanmics(&ft->font, h_render, temps_is_hours);
+		}
 
 		sleep(1);
 		ft->secworked++;
-		t += dt;
+		s_pssdby += dt;
+
+		if (s_pssdby == 0) { break; }
 	}
 }
 
-static void render_constants (const struct font *font, const unsigned short disrow, const unsigned short discol)
+static void render_constants (const struct font *font)
 {
 	const unsigned short offset[] =
 	{
-		discol + font->cols * 2,
-		discol + font->cols * 5,
+		font->scol + font->cols * 2,
+		font->scol + font->cols * 5,
 	};
 
 	for (unsigned short j = 0; j < font->rows; j++)
-		printf("\x1b[5m\x1b[%d;%dH%s\x1b[%d;%dH%s\x1b[0m", j + disrow, offset[0], font->set[10][j], j + disrow, offset[1], font->set[10][j]);
+		printf("\x1b[5m\x1b[%d;%dH%s\x1b[%d;%dH%s\x1b[0m",
+		j + font->srow,
+		offset[0],
+		font->set[10][j],
+		j + font->srow,
+		offset[1],
+		font->set[10][j]
+		);
 
-	const unsigned short newr = disrow + font->rows + 1;
-	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m", newr, discol, "task");
-	printf("\x1b[%d;%dHpress 'q' to quit and save", newr + 1, discol);
+	const unsigned short newr = font->srow + font->rows + 1;
+	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m", newr, font->scol, "task");
+	printf("\x1b[%d;%dHpress 'q' to quit and save", newr + 1, font->scol);
 
 	fflush(stdout);
 }
 
-static void render_dyanmics (const struct font *font, const unsigned short disrow, unsigned short discol, const unsigned int temps, const enum temps_kind tk)
+static void render_dyanmics (const struct font *font, const unsigned int temps, const enum temps_kind tk)
 {
+	unsigned short offset = font->scol;
+
 	switch (tk)
 	{
-		case temps_is_seconds: { discol += font->cols * 6; break; }
-		case temps_is_minutes: { discol += font->cols * 3; break; }
+		case temps_is_seconds: { offset += font->cols * 6; break; }
+		case temps_is_minutes: { offset += font->cols * 3; break; }
 		default: { break; }
 	}
-
-	fprintf(stderr, "rendered: %d\n", tk);
 
 	const unsigned short d1 = temps / 10;
 	const unsigned short d2 = temps % 10;
 
 	for (unsigned short i = 0; i < font->rows; i++)
-		printf("\x1b[%d;%dH%s%s", disrow + i, discol, font->set[d1][i], font->set[d2][i]);
+		printf("\x1b[%d;%dH%s%s", font->srow + i, offset, font->set[d1][i], font->set[d2][i]);
 	fflush(stdout);
 }
