@@ -44,7 +44,7 @@
 #define STDIN_FD                     0
 #define STDOUT_FD                    1
 
-#define PREDULE_TIME_S               0
+#define PREDULE_TIME_S               3
 #define EXTRA_RENDERED_LINES         4
 
 #define STATE_WORKING                "working"
@@ -96,6 +96,10 @@ static const char *const States[] =
 	"paused "
 };
 
+static bool WannaQuit  = false;
+static bool WinResized = false;
+static bool ProcPaused = false;
+
 static inline void obtain_window_dimensions (unsigned short *rows, unsigned short *cols)
 {
 	struct winsize w;
@@ -117,7 +121,7 @@ static void config_terminal_intro (struct ft*);
 static void config_terminal_outro (struct ft*);
 static bool set_up_signals (void);
 
-static void signal_daddy (const int);
+static void signal_handler (const int);
 static void task_prelude (const unsigned short, const unsigned);
 
 static void start_timer (struct ft*, const bool, const bool);
@@ -176,8 +180,9 @@ int main (int argc, char **argv)
 	const bool u_seen = (flags[6].meta & CXA_FLAG_SEEN_MASK);
 
 	start_timer(&ft, c_seen, u_seen);
-
 	config_terminal_outro(&ft);
+
+	printf("c fini\n");
 	return 0;
 }
 
@@ -312,7 +317,7 @@ static void config_terminal_outro (struct ft *ft)
 static bool set_up_signals (void)
 {
 	struct sigaction s;
-	s.sa_handler = signal_daddy;
+	s.sa_handler = signal_handler;
 	sigemptyset(&s.sa_mask);
 
 	errno = 0;
@@ -328,16 +333,16 @@ static bool set_up_signals (void)
 	return true;
 }
 
-static void signal_daddy (const int sg)
+static void signal_handler (const int sg)
 {
 	switch (sg)
 	{
 		case SIGINT  :
 		case SIGHUP  :
 		case SIGQUIT :
-		case SIGTERM : { break; }
-		case SIGWINCH: { break; }
-		case SIGTSTP : { break; }
+		case SIGTERM : { WannaQuit  = true; break; }
+		case SIGWINCH: { WinResized = true; break; }
+		case SIGTSTP : { ProcPaused = true; break; }
 	}
 }
 
@@ -389,12 +394,22 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 	bool paused = false;
 	enum state state = (c_seen) ? state_working : state_noneeded;
 
-	while (1)
+	while (!WannaQuit)
 	{
 		const char key = getchar();
 		if (key == ' ')        { paused = !paused; if (c_seen) { state = (enum state) 1 - state; } }
 		if (key == 'q')        { break; }
 		if (paused && !c_seen) { sleep(1); continue; }
+		if (WinResized)
+		{
+			make_sure_content_fits_in(ft, FONT_NO_DISPLAYED_CHARS, EXTRA_RENDERED_LINES, 0, false);
+			render_constants(&ft->font);
+			WinResized = false;
+			if (!c_seen) { h_render = -1, m_render = -1, s_render = -1; }
+
+			sleep(1);
+			continue;
+		}
 
 		if (c_seen)
 		{
@@ -428,6 +443,8 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 
 static void render_constants (const struct font *font)
 {
+	printf("\x1b[2J");
+
 	const unsigned short offset[] =
 	{
 		font->scol + font->cols * 2,
