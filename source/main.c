@@ -45,7 +45,10 @@
 #define STDOUT_FD                    1
 
 #define PREDULE_TIME_S               0
-#define EXTRA_RENDERED_LINES         3
+#define EXTRA_RENDERED_LINES         4
+
+#define STATE_WORKING                "working"
+#define STATE_PAUSED                 "paused "
 
 struct font
 {
@@ -63,6 +66,13 @@ enum temps_kind
 	temps_is_hours,
 };
 
+enum state
+{
+	state_working  = 0,
+	state_paused   = 1,
+	state_noneeded = 2,
+};
+
 struct xargs_
 {
 	char *task;
@@ -78,6 +88,12 @@ struct ft
 	int stdfcntl;
 	unsigned short secworked;
 	unsigned short winrows, wincols;
+};
+
+static const char *const States[] =
+{
+	"working",
+	"paused "
 };
 
 static inline void obtain_window_dimensions (unsigned short *rows, unsigned short *cols)
@@ -107,7 +123,7 @@ static void task_prelude (const unsigned short, const unsigned);
 static void start_timer (struct ft*, const bool, const bool);
 static void render_constants (const struct font*);
 
-static void render_dyanmics (const struct font*, const unsigned int, const enum temps_kind);
+static void render_dyanmics (const struct font*, const unsigned int, const enum temps_kind, const enum state);
 
 int main (int argc, char **argv)
 {
@@ -368,12 +384,17 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 		s_render = temps->tm_sec;
 		s_pssdby = temps->tm_sec;
 	}
+	if (u_seen) { s_pssdby = 0; }
+
+	bool paused = false;
+	enum state state = (c_seen) ? state_working : state_noneeded;
 
 	while (1)
 	{
 		const char key = getchar();
-		if (key == ' ') { /* TODO */ }
-		if (key == 'q') { break; }
+		if (key == ' ')        { paused = !paused; if (c_seen) { state = (enum state) 1 - state; } }
+		if (key == 'q')        { break; }
+		if (paused && !c_seen) { sleep(1); continue; }
 
 		if (c_seen)
 		{
@@ -382,9 +403,9 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 			if (m_render == 60) { m_render = 0; h_render++; s_pssdby = 0; }
 			if (h_render == 24) { s_pssdby = 0; m_render = 0; h_render = 0; }
 
-			render_dyanmics(&ft->font, s_render, temps_is_seconds);
-			render_dyanmics(&ft->font, m_render, temps_is_minutes);
-			render_dyanmics(&ft->font, h_render, temps_is_hours);
+			render_dyanmics(&ft->font, s_render, temps_is_seconds, state);
+			render_dyanmics(&ft->font, m_render, temps_is_minutes, state);
+			render_dyanmics(&ft->font, h_render, temps_is_hours, state);
 		}
 		else
 		{
@@ -392,15 +413,16 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 			m_render = (s_pssdby % 3600) / 60;
 			s_render = (s_pssdby % 60);
 
-			render_dyanmics(&ft->font, s_render, temps_is_seconds);
-			render_dyanmics(&ft->font, m_render, temps_is_minutes);
-			render_dyanmics(&ft->font, h_render, temps_is_hours);
+			// TODO
+			render_dyanmics(&ft->font, s_render, temps_is_seconds, state);
+			render_dyanmics(&ft->font, m_render, temps_is_minutes, state);
+			render_dyanmics(&ft->font, h_render, temps_is_hours, state);
 		}
 
 		sleep(1);
-		ft->secworked++;
 		s_pssdby += dt;
 
+		if (!paused) { ft->secworked++; }
 		if (s_pssdby == 0) { break; }
 	}
 }
@@ -426,12 +448,18 @@ static void render_constants (const struct font *font)
 	const unsigned short newr = font->srow + font->rows + 1;
 	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m", newr, font->scol, "task");
 	printf("\x1b[%d;%dHpress 'q' to quit and save", newr + 1, font->scol);
-
 	fflush(stdout);
 }
 
-static void render_dyanmics (const struct font *font, const unsigned int temps, const enum temps_kind tk)
+static void render_dyanmics (const struct font *font, const unsigned int temps, const enum temps_kind tk, const enum state cstt)
 {
+	static enum state lastt = state_noneeded;
+	if (lastt != cstt)
+	{
+		printf("\x1b[%d;%dHstate: %s", font->srow + EXTRA_RENDERED_LINES + 1, font->scol, States[cstt]);
+		lastt = cstt;
+	}
+
 	unsigned short offset = font->scol;
 
 	switch (tk)
@@ -446,5 +474,6 @@ static void render_dyanmics (const struct font *font, const unsigned int temps, 
 
 	for (unsigned short i = 0; i < font->rows; i++)
 		printf("\x1b[%d;%dH%s%s", font->srow + i, offset, font->set[d1][i], font->set[d2][i]);
+
 	fflush(stdout);
 }
