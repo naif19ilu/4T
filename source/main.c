@@ -353,24 +353,22 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 	unsigned int t = ft->args.time * 60;
 	signed int dt = -1;
 
-	if (u_seen)
-	{
-		t = 0;
-		dt = 1;
-	}
+	if (u_seen) { t = 0; dt = 1; }
 	if (c_seen) { dt = 1; }
+
+	signed int lastm = -1, lasth = -1;
 
 	while (1)
 	{
 		const char psd = getchar();
 		if (psd == 'q') { break; }
 
-		const unsigned int hours = (t / 3600);
-		const unsigned int minut = (t % 3600) / 60;
-		const unsigned int secnd = (t % 60);
+		const signed int hours = (t / 3600);
+		const signed int minut = (t % 3600) / 60;
+		const signed int secnd = (t % 60);
 
-		render_dyanmics(&ft->font, disrow, discol, hours, temps_is_hours);
-		render_dyanmics(&ft->font, disrow, discol, minut, temps_is_minutes);
+		if (hours != lasth) { render_dyanmics(&ft->font, disrow, discol, hours, temps_is_hours);   lasth = hours; }
+		if (minut != lastm) { render_dyanmics(&ft->font, disrow, discol, minut, temps_is_minutes); lastm = minut; }
 		render_dyanmics(&ft->font, disrow, discol, secnd, temps_is_seconds);
 
 		sleep(1);
@@ -384,13 +382,12 @@ static void render_constants (const struct font *font, const unsigned short disr
 	const unsigned short offset[] =
 	{
 		discol + font->cols * 2,
-		discol + font->cols * 4,
+		discol + font->cols * 5,
 	};
 
-	for (unsigned short i = 0; i < 2; i++)
-		for (unsigned short j = 0; j < font->rows; j++)
-			printf("\x1b[5m\x1b[%d;%dH%s\x1b[0m", j + disrow, offset[i], font->set[10][j]);
-	
+	for (unsigned short j = 0; j < font->rows; j++)
+		printf("\x1b[5m\x1b[%d;%dH%s\x1b[%d;%dH%s\x1b[0m", j + disrow, offset[0], font->set[10][j], j + disrow, offset[1], font->set[10][j]);
+
 	const unsigned short newr = disrow + font->rows + 1;
 	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m", newr, discol, "task");
 	printf("\x1b[%d;%dHpress 'q' to quit and save", newr + 1, discol);
@@ -406,6 +403,8 @@ static void render_dyanmics (const struct font *font, const unsigned short disro
 		case temps_is_minutes: { discol += font->cols * 3; break; }
 		default: { break; }
 	}
+
+	fprintf(stderr, "rendered: %d\n", tk);
 
 	const unsigned short d1 = temps / 10;
 	const unsigned short d2 = temps % 10;
