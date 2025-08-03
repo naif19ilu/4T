@@ -68,7 +68,7 @@ struct ft
 	struct font font;
 	const char *quote;
 	int stdfcntl;
-	unsigned short secworked, dt;
+	unsigned short secworked;
 	unsigned short winrows, wincols;
 };
 
@@ -94,9 +94,9 @@ static void config_terminal_outro (struct ft*);
 static bool set_up_signals (void);
 
 static void signal_daddy (const int);
-static unsigned short task_prelude (const unsigned short, const unsigned, const bool);
+static void task_prelude (const unsigned short, const unsigned);
 
-static void start_timer (struct ft*, const bool);
+static void start_timer (struct ft*, const bool, const bool);
 
 int main (int argc, char **argv)
 {
@@ -119,13 +119,13 @@ int main (int argc, char **argv)
 
 	cxa_clean(cxa_execute((unsigned char) argc, argv, flags, PROGRAM_NAME));
 
-	if (flags[3].meta & CXA_FLAG_SEEN_MASK)
+	if (flags[4].meta & CXA_FLAG_SEEN_MASK)
 	{
 		list_available_fonts();
 		return 0;
 	}
 
-	if (flags[4].meta & CXA_FLAG_SEEN_MASK)
+	if (flags[3].meta & CXA_FLAG_SEEN_MASK)
 	{
 		do_font_preview(&ft);
 		return 0;
@@ -146,12 +146,10 @@ int main (int argc, char **argv)
 		err(EXIT_FAILURE, "fatal internal; cannot continue");
 	}
 
-	const bool c_seen = (flags[6].meta & CXA_FLAG_SEEN_MASK);
-	const bool u_seen = (flags[5].meta & CXA_FLAG_SEEN_MASK);
+	const bool c_seen = (flags[5].meta & CXA_FLAG_SEEN_MASK);
+	const bool u_seen = (flags[6].meta & CXA_FLAG_SEEN_MASK);
 
-	obtain_window_dimensions(&ft.winrows, &ft.wincols);
-	ft.dt = task_prelude(ft.winrows, ft.wincols, u_seen);
-	start_timer(&ft, c_seen);
+	start_timer(&ft, c_seen, u_seen);
 
 	config_terminal_outro(&ft);
 	return 0;
@@ -210,14 +208,14 @@ static void list_available_fonts (void)
 	for (unsigned short i = 0; i < NO_FONTS; i++) printf("  - %s\n", names[i]);
 }
 
-static void make_sure_content_fits_in (struct ft *ft, const unsigned short setsz, const unsigned short erows, const unsigned short ecols, const bool viasig)
+static void make_sure_content_fits_in (struct ft *ft, const unsigned short setsz, const unsigned short erows, const unsigned short ecols, const bool isprev)
 {
 	obtain_window_dimensions(&ft->winrows, &ft->wincols);
 
 	const unsigned short rowsd = ft->font.rows + erows;
 	const unsigned short colsd = ft->font.cols * setsz + ecols;
 
-	if (rowsd <= ft->winrows && colsd <= ft->wincols) { return; }
+	if (rowsd < ft->winrows && colsd < ft->wincols) { return; }
 
 	const char *errmsg =
 	"\x1b[2J\x1b[H%s:error: aboring now!\n"
@@ -226,7 +224,7 @@ static void make_sure_content_fits_in (struct ft *ft, const unsigned short setsz
 	" minimum needed: %d rows and %d columns\n"
 	" current values: %d rows and %d columns\n";
 
-	if (viasig) { config_terminal_outro(ft); /* TODO save progress from here */ }
+	if (isprev == false) { config_terminal_outro(ft); /* TODO save progress from here */ }
 
 	fprintf(stderr, errmsg, PROGRAM_NAME, PROGRAM_NAME, rowsd, colsd, ft->winrows, ft->wincols);
 	fflush(stderr);
@@ -236,7 +234,7 @@ static void make_sure_content_fits_in (struct ft *ft, const unsigned short setsz
 static void do_font_preview (struct ft *ft)
 {
 	set_rendering_font(&ft->font, ft->args.font);
-	make_sure_content_fits_in(ft, FONT_CHARSET_SIZE, 0, FONT_CHARSET_SIZE, false);
+	make_sure_content_fits_in(ft, FONT_CHARSET_SIZE, 0, FONT_CHARSET_SIZE, true);
 
 	for (unsigned short i = 0; i < ft->font.rows; i++)
 	{
@@ -312,7 +310,7 @@ static void signal_daddy (const int sg)
 	}
 }
 
-static unsigned short task_prelude (const unsigned short rows, const unsigned cols, const bool undeftime)
+static void task_prelude (const unsigned short rows, const unsigned cols)
 {
 	static const char *const welcome[] =
 	{
@@ -331,16 +329,17 @@ static unsigned short task_prelude (const unsigned short rows, const unsigned co
 		sleep(1);
 	}
 
-	return (undeftime) ? 1 : -1;
+	printf("\x1b[2J");
+	fflush(stdout);
 }
 
-static void start_timer (struct ft *ft, const bool useclock)
+static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 {
-	// TODO make sure content fits
+	make_sure_content_fits_in(ft, FONT_NO_DISPLAYED_CHARS, 0, 0, false);
+	task_prelude(ft->winrows, ft->wincols);
 
-	if (useclock)
-	{
-	}
+	unsigned short dt = (u_seen) ? 1 : -1;
+	if (c_seen) { dt = 1; }
 
 	while (1)
 	{
