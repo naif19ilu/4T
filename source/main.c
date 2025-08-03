@@ -44,7 +44,7 @@
 #define STDIN_FD                     0
 #define STDOUT_FD                    1
 
-#define PREDULE_TIME_S               10
+#define PREDULE_TIME_S               0
 
 struct font
 {
@@ -97,6 +97,7 @@ static void signal_daddy (const int);
 static void task_prelude (const unsigned short, const unsigned);
 
 static void start_timer (struct ft*, const bool, const bool);
+static void display_constants (const struct font*, const unsigned short, const unsigned short, const unsigned short, const unsigned short, const char*);
 
 int main (int argc, char **argv)
 {
@@ -338,7 +339,12 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 	make_sure_content_fits_in(ft, FONT_NO_DISPLAYED_CHARS, 0, 0, false);
 	task_prelude(ft->winrows, ft->wincols);
 
-	unsigned short dt = (u_seen) ? 1 : -1;
+	unsigned short disrow = (ft->winrows - ft->font.rows) >> 1;
+	unsigned short discol = (ft->wincols - ft->font.cols * FONT_NO_DISPLAYED_CHARS) >> 1;
+
+	display_constants(&ft->font, ft->winrows, ft->wincols, disrow, discol, ft->quote);
+
+	unsigned int dt = (u_seen) ? 1 : -1, t = ft->args.time * 60;
 	if (c_seen) { dt = 1; }
 
 	while (1)
@@ -346,7 +352,33 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 		const char psd = getchar();
 		if (psd == 'q') { break; }
 
+		const unsigned int hours = (t / 3600);
+		const unsigned int minut = (t % 3600) / 60;
+		const unsigned int secnd = (t % 60);
+
 		sleep(1);
 		ft->secworked++;
+
+		t += dt;
 	}
+}
+
+static void display_constants (const struct font *font, const unsigned short rows, const unsigned short cols, const unsigned short disrow, const unsigned short discol, const char *quote)
+{
+	const unsigned short offset[] =
+	{
+		discol + font->cols * 2,
+		discol + font->cols * 4,
+	};
+
+	for (unsigned short i = 0; i < 2; i++)
+		for (unsigned short j = 0; j < font->rows; j++)
+			printf("\x1b[5m\x1b[%d;%dH%s\x1b[0m", j + disrow, offset[i], font->set[10][j]);
+	
+	const unsigned short newr = disrow + font->rows + 1;
+	printf("\x1b[%d;%dHpress 'q' to quit and save", newr, discol);
+	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m", newr + 1, discol, "task");
+	printf("\x1b[%d;%dH%s...", newr + 2, discol, quote);
+
+	fflush(stdout);
 }
