@@ -409,14 +409,13 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 		}
 		else
 		{
-			h_render = (s_pssdby / 3600);
-			m_render = (s_pssdby % 3600) / 60;
-			s_render = (s_pssdby % 60);
+			const int h_computed = (s_pssdby / 3600);
+			const int m_computed = (s_pssdby % 3600) / 60;
+			const int s_computed = (s_pssdby % 60);
 
-			// TODO
-			render_dyanmics(&ft->font, s_render, temps_is_seconds, state);
-			render_dyanmics(&ft->font, m_render, temps_is_minutes, state);
-			render_dyanmics(&ft->font, h_render, temps_is_hours, state);
+			render_dyanmics(&ft->font, s_computed, temps_is_seconds, state);
+			if (m_computed != m_render) { render_dyanmics(&ft->font, m_computed, temps_is_minutes, state); m_render = m_computed; }
+			if (h_computed != h_render) { render_dyanmics(&ft->font, h_computed, temps_is_hours, state);   h_render = h_computed; }
 		}
 
 		sleep(1);
