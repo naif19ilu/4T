@@ -1,26 +1,3 @@
-#define NO_QUOTES      17
-
-static const char *const Quotes[NO_QUOTES] =
-{
-	"tengo reloj, no me interesa el tiempo porque se va y ya no puedo detenerlo",
-	"el paso de las horas un delito sin culpable",
-	"au fait, qui est ce qui dessine les nuages?",
-	"no me soya la playa pero aqui estamos, a veces no escogemos donde terminamos",
-	"hasta luego...",
-	"ya va'ber tiempo pa' pensar, hoy solo queda reaccionar a 'como fue?'",
-	"soulless friends <3",
-	"...je veux vivre (2/2)",
-	"el tiempo ni se gana ni se pierde",
-	"aqui no se aceptan limites",
-	"un jour, algun dia, one day",
-	"lo esencial es invisible ante los ojos",
-	"felices no estamos, pero estamos y es mas que algo",
-	"no one else can do what you're here to do",
-	"happy seeing you working :)",
-	"voy a ser mejor que el que esta haciendo esto",
-	"happy little clouds..."
-};
-
 static const struct font f_bulbhead =
 {
 	.set =

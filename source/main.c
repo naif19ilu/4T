@@ -45,6 +45,7 @@
 #define STDOUT_FD                    1
 
 #define PREDULE_TIME_S               0
+#define EXTRA_RENDERED_LINES         3
 
 struct font
 {
@@ -52,7 +53,14 @@ struct font
 	unsigned short rows, cols;
 };
 
-#include "const.inc"
+#include "fonts.inc"
+
+enum temps_kind
+{
+	temps_is_seconds,
+	temps_is_minutes,
+	temps_is_hours,
+};
 
 struct xargs_
 {
@@ -66,7 +74,6 @@ struct ft
 	struct termios stdterm;
 	struct xargs_ args;
 	struct font font;
-	const char *quote;
 	int stdfcntl;
 	unsigned short secworked;
 	unsigned short winrows, wincols;
@@ -81,7 +88,7 @@ static inline void obtain_window_dimensions (unsigned short *rows, unsigned shor
 	*cols = (unsigned short) w.ws_col;
 }
 
-static void set_defaults_and_quote (struct ft*);
+static void set_defaults (struct ft*);
 static void set_rendering_font (struct font*, const char*);
 
 static void list_available_fonts (void);
@@ -97,12 +104,14 @@ static void signal_daddy (const int);
 static void task_prelude (const unsigned short, const unsigned);
 
 static void start_timer (struct ft*, const bool, const bool);
-static void display_constants (const struct font*, const unsigned short, const unsigned short, const unsigned short, const unsigned short, const char*);
+static void render_constants (const struct font*, const unsigned short, const unsigned short);
+
+static void render_dyanmics (const struct font*, const unsigned short, unsigned short, const unsigned int, const enum temps_kind);
 
 int main (int argc, char **argv)
 {
 	struct ft ft;
-	set_defaults_and_quote(&ft);
+	set_defaults(&ft);
 
 	struct CxaFlag flags[] =
 	{
@@ -156,14 +165,11 @@ int main (int argc, char **argv)
 	return 0;
 }
 
-static void set_defaults_and_quote (struct ft *ft)
+static void set_defaults (struct ft *ft)
 {
 	memset(ft, 0, sizeof(*ft));
 	ft->args.font = FLAG_FONT_DEFAULT;
 	ft->args.time = FLAG_TIME_DEFAULT;
-
-	srand(time(NULL));
-	ft->quote = Quotes[rand() % NO_QUOTES];
 }
 
 static void set_rendering_font (struct font *font, const char *given)
@@ -336,15 +342,22 @@ static void task_prelude (const unsigned short rows, const unsigned cols)
 
 static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 {
-	make_sure_content_fits_in(ft, FONT_NO_DISPLAYED_CHARS, 0, 0, false);
+	make_sure_content_fits_in(ft, FONT_NO_DISPLAYED_CHARS, EXTRA_RENDERED_LINES, 0, false);
 	task_prelude(ft->winrows, ft->wincols);
 
 	unsigned short disrow = (ft->winrows - ft->font.rows) >> 1;
 	unsigned short discol = (ft->wincols - ft->font.cols * FONT_NO_DISPLAYED_CHARS) >> 1;
 
-	display_constants(&ft->font, ft->winrows, ft->wincols, disrow, discol, ft->quote);
+	render_constants(&ft->font, disrow, discol);
 
-	unsigned int dt = (u_seen) ? 1 : -1, t = ft->args.time * 60;
+	unsigned int t = ft->args.time * 60;
+	signed int dt = -1;
+
+	if (u_seen)
+	{
+		t = 0;
+		dt = 1;
+	}
 	if (c_seen) { dt = 1; }
 
 	while (1)
@@ -356,14 +369,17 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 		const unsigned int minut = (t % 3600) / 60;
 		const unsigned int secnd = (t % 60);
 
+		render_dyanmics(&ft->font, disrow, discol, hours, temps_is_hours);
+		render_dyanmics(&ft->font, disrow, discol, minut, temps_is_minutes);
+		render_dyanmics(&ft->font, disrow, discol, secnd, temps_is_seconds);
+
 		sleep(1);
 		ft->secworked++;
-
 		t += dt;
 	}
 }
 
-static void display_constants (const struct font *font, const unsigned short rows, const unsigned short cols, const unsigned short disrow, const unsigned short discol, const char *quote)
+static void render_constants (const struct font *font, const unsigned short disrow, const unsigned short discol)
 {
 	const unsigned short offset[] =
 	{
@@ -376,9 +392,25 @@ static void display_constants (const struct font *font, const unsigned short row
 			printf("\x1b[5m\x1b[%d;%dH%s\x1b[0m", j + disrow, offset[i], font->set[10][j]);
 	
 	const unsigned short newr = disrow + font->rows + 1;
-	printf("\x1b[%d;%dHpress 'q' to quit and save", newr, discol);
-	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m", newr + 1, discol, "task");
-	printf("\x1b[%d;%dH%s...", newr + 2, discol, quote);
+	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m", newr, discol, "task");
+	printf("\x1b[%d;%dHpress 'q' to quit and save", newr + 1, discol);
 
+	fflush(stdout);
+}
+
+static void render_dyanmics (const struct font *font, const unsigned short disrow, unsigned short discol, const unsigned int temps, const enum temps_kind tk)
+{
+	switch (tk)
+	{
+		case temps_is_seconds: { discol += font->cols * 6; break; }
+		case temps_is_minutes: { discol += font->cols * 3; break; }
+		default: { break; }
+	}
+
+	const unsigned short d1 = temps / 10;
+	const unsigned short d2 = temps % 10;
+
+	for (unsigned short i = 0; i < font->rows; i++)
+		printf("\x1b[%d;%dH%s%s", disrow + i, discol, font->set[d1][i], font->set[d2][i]);
 	fflush(stdout);
 }
