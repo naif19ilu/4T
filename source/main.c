@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <string.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <stdbool.h>
@@ -43,6 +44,8 @@
 #define STDIN_FD                     0
 #define STDOUT_FD                    1
 
+#define PREDULE_TIME_S               10
+
 struct font
 {
 	char *set[FONT_CHARSET_SIZE][FONT_WIDEST_SYMBOL];
@@ -65,6 +68,7 @@ struct ft
 	struct font font;
 	const char *quote;
 	int stdfcntl;
+	unsigned short secworked, dt;
 	unsigned short winrows, wincols;
 };
 
@@ -90,7 +94,9 @@ static void config_terminal_outro (struct ft*);
 static bool set_up_signals (void);
 
 static void signal_daddy (const int);
-static void start_timer (struct ft*);
+static unsigned short task_prelude (const unsigned short, const unsigned, const bool);
+
+static void start_timer (struct ft*, const bool);
 
 int main (int argc, char **argv)
 {
@@ -133,13 +139,20 @@ int main (int argc, char **argv)
 
 	set_rendering_font(&ft.font, ft.args.font);
 	config_terminal_intro(&ft);
+
 	if (set_up_signals() == false)
 	{
 		config_terminal_outro(&ft);
 		err(EXIT_FAILURE, "fatal internal; cannot continue");
 	}
 
-	start_timer(&ft);
+	const bool c_seen = (flags[6].meta & CXA_FLAG_SEEN_MASK);
+	const bool u_seen = (flags[5].meta & CXA_FLAG_SEEN_MASK);
+
+	obtain_window_dimensions(&ft.winrows, &ft.wincols);
+	ft.dt = task_prelude(ft.winrows, ft.wincols, u_seen);
+	start_timer(&ft, c_seen);
+
 	config_terminal_outro(&ft);
 	return 0;
 }
@@ -299,11 +312,42 @@ static void signal_daddy (const int sg)
 	}
 }
 
-static void start_timer (struct ft*)
+static unsigned short task_prelude (const unsigned short rows, const unsigned cols, const bool undeftime)
 {
+	static const char *const welcome[] =
+	{
+		"\x1b[%d;%dHstarting in %d\x1b[5m.  \x1b[0m",
+		"\x1b[%d;%dHstarting in %d\x1b[5m.. \x1b[0m",
+		"\x1b[%d;%dHstarting in %d\x1b[5m...\x1b[0m",
+	};
+
+	const unsigned short row = ((rows -  0) >> 1);
+	const unsigned short col = ((cols - 16) >> 1);
+
+	for (unsigned short i = 0, p = PREDULE_TIME_S; i < PREDULE_TIME_S; i++)
+	{
+		printf(welcome[i % 3], row, col, p--);
+		fflush(stdout);
+		sleep(1);
+	}
+
+	return (undeftime) ? 1 : -1;
+}
+
+static void start_timer (struct ft *ft, const bool useclock)
+{
+	// TODO make sure content fits
+
+	if (useclock)
+	{
+	}
+
 	while (1)
 	{
 		const char psd = getchar();
 		if (psd == 'q') { break; }
+
+		sleep(1);
+		ft->secworked++;
 	}
 }
