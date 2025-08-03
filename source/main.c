@@ -11,9 +11,11 @@
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <stdbool.h>
+#include <termios.h>
 #include <sys/ioctl.h>
 
 #define PROGRAM_NAME                 "4T"
@@ -24,6 +26,8 @@
 #define FLAG_TIME_DESC               "total amount of minutes working (30 default)"
 #define FLAG_LIST_DESC               "lists all availbale fonts"
 #define FLAG_PREV_DESC               "do a preview of <fontname> font"
+#define FLAG_CLOCK_DESC              "show actual time instead of timer"
+#define FLAG_UNDEF_DESC              "undefined timw working (count-up)"
 
 #define FLAG_FONT_DEFAULT            "short"
 #define FLAG_TIME_DEFAULT            30
@@ -53,19 +57,21 @@ struct xargs_
 
 struct ft
 {
+	struct termios stdterm;
 	struct xargs_ args;
 	struct font font;
 	const char *quote;
+	int stdfcntl;
 	unsigned short winrows, wincols;
 };
 
-static inline void obtain_window_dimensions (struct ft *ft)
+static inline void obtain_window_dimensions (unsigned short *rows, unsigned short *cols)
 {
 	struct winsize w;
 	assert(ioctl(STDOUT_FD, TIOCGWINSZ, &w) == 0);
 
-	ft->winrows = (unsigned short) w.ws_row;
-	ft->wincols = (unsigned short) w.ws_col;
+	*rows = (unsigned short) w.ws_row;
+	*cols = (unsigned short) w.ws_col;
 }
 
 static void set_defaults_and_quote (struct ft*);
@@ -75,6 +81,9 @@ static void list_available_fonts (void);
 static void make_sure_content_fits_in (struct ft*, const unsigned short, const unsigned short, const unsigned short, const bool);
 
 static void do_font_preview (struct ft*);
+static void config_terminal_intro (struct ft*);
+
+static void config_terminal_outro (struct ft*);
 
 int main (int argc, char **argv)
 {
@@ -83,11 +92,15 @@ int main (int argc, char **argv)
 
 	struct CxaFlag flags[] =
 	{
-		CXA_SET_STR("task", FLAG_TASK_DESC, &ft.args.task, CXA_FLAG_TAKER_YES, 't'),
-		CXA_SET_STR("font", FLAG_FONT_DESC, &ft.args.font, CXA_FLAG_TAKER_YES, 'f'),
-		CXA_SET_SHT("time", FLAG_TIME_DESC, &ft.args.time, CXA_FLAG_TAKER_YES, 'T'),
-		CXA_SET_CHR("list", FLAG_LIST_DESC, NULL,          CXA_FLAG_TAKER_NON, 'L'),
-		CXA_SET_STR("prev", FLAG_PREV_DESC, &ft.args.font, CXA_FLAG_TAKER_MAY, 'p'),
+		CXA_SET_STR("task",  FLAG_TASK_DESC,  &ft.args.task, CXA_FLAG_TAKER_YES, 't'),
+		CXA_SET_STR("font",  FLAG_FONT_DESC,  &ft.args.font, CXA_FLAG_TAKER_YES, 'f'),
+		CXA_SET_SHT("time",  FLAG_TIME_DESC,  &ft.args.time, CXA_FLAG_TAKER_YES, 'T'),
+		CXA_SET_STR("prev",  FLAG_PREV_DESC,  &ft.args.font, CXA_FLAG_TAKER_MAY, 'p'),
+		CXA_SET_CHR("list",  FLAG_LIST_DESC,  NULL,          CXA_FLAG_TAKER_NON, 'L'),
+
+		CXA_SET_CHR("clock", FLAG_CLOCK_DESC, NULL,          CXA_FLAG_TAKER_NON, 'c'),
+		CXA_SET_CHR("undef", FLAG_UNDEF_DESC, NULL,          CXA_FLAG_TAKER_NON, 'u'),
+
 		CXA_SET_END
 	};
 
@@ -112,6 +125,9 @@ int main (int argc, char **argv)
 	}
 
 	set_rendering_font(&ft.font, ft.args.font);
+	config_terminal_intro(&ft);
+
+	config_terminal_outro(&ft);
 	return 0;
 }
 
@@ -170,31 +186,31 @@ static void list_available_fonts (void)
 
 static void make_sure_content_fits_in (struct ft *ft, const unsigned short setsz, const unsigned short erows, const unsigned short ecols, const bool viasig)
 {
-	obtain_window_dimensions(ft);
+	obtain_window_dimensions(&ft->winrows, &ft->wincols);
 
 	const unsigned short rowsd = ft->font.rows + erows;
 	const unsigned short colsd = ft->font.cols * setsz + ecols;
 
-	if (rowsd > ft->winrows || colsd > ft->wincols)
-	{
-		const char *errmsg =
-		"\x1b[2J\x1b[H%s:error: aboring now!\n"
-		" terminal dimensions are not enough to display %s's content\n"
-		" your progress (if any) will be saved now!\n"
-		" minimum needed: %d rows and %d columns\n"
-		" current values: %d rows and %d columns\n";
+	if (rowsd <= ft->winrows && colsd <= ft->wincols) { return; }
 
-		if (viasig) { /* TODO enable canonical mode & echo */ }
+	const char *errmsg =
+	"\x1b[2J\x1b[H%s:error: aboring now!\n"
+	" terminal dimensions are not enough to display %s's content\n"
+	" your progress (if any) will be saved now!\n"
+	" minimum needed: %d rows and %d columns\n"
+	" current values: %d rows and %d columns\n";
 
-		fprintf(stderr, errmsg, PROGRAM_NAME, PROGRAM_NAME, rowsd, colsd, ft->winrows, ft->wincols);
-		exit(EXIT_FAILURE);
-	}
+	if (viasig) { config_terminal_outro(ft); /* TODO save progress from here */ }
+
+	fprintf(stderr, errmsg, PROGRAM_NAME, PROGRAM_NAME, rowsd, colsd, ft->winrows, ft->wincols);
+	fflush(stderr);
+	exit(EXIT_FAILURE);
 }
 
 static void do_font_preview (struct ft *ft)
 {
 	set_rendering_font(&ft->font, ft->args.font);
-	make_sure_content_fits_in(ft, FONT_CHARSET_SIZE, 0, 0, false);
+	make_sure_content_fits_in(ft, FONT_CHARSET_SIZE, 0, FONT_CHARSET_SIZE, false);
 
 	for (unsigned short i = 0; i < ft->font.rows; i++)
 	{
@@ -214,3 +230,26 @@ static void do_font_preview (struct ft *ft)
 	}
 }
 
+static void config_terminal_intro (struct ft *ft)
+{
+	printf("\x1b[2J\x1b[H\x1b[?25l");
+	fflush(stdout);
+
+	tcgetattr(STDIN_FD, &ft->stdterm);
+	struct termios custom = ft->stdterm;
+
+	custom.c_lflag &= ~(ICANON | ECHO);
+	tcsetattr(STDIN_FD, TCSANOW, &custom);
+
+	ft->stdfcntl = fcntl(STDIN_FD, F_GETFL);
+	fcntl(STDIN_FD, F_SETFL, ft->stdfcntl | O_NONBLOCK);
+}
+
+static void config_terminal_outro (struct ft *ft)
+{
+	printf("\x1b[2J\x1b[H\x1b[?25h");
+	fflush(stdout);
+
+	tcsetattr(STDIN_FD, TCSANOW, &ft->stdterm);
+	fcntl(STDIN_FD, F_SETFL, ft->stdfcntl);
+}
