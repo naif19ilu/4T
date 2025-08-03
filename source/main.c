@@ -8,10 +8,13 @@
 
 #include "cxa.h"
 
+#include <err.h>
 #include <time.h>
 #include <stdio.h>
-#include <string.h>
 #include <fcntl.h>
+#include <errno.h>
+#include <signal.h>
+#include <string.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <stdbool.h>
@@ -84,6 +87,10 @@ static void do_font_preview (struct ft*);
 static void config_terminal_intro (struct ft*);
 
 static void config_terminal_outro (struct ft*);
+static bool set_up_signals (void);
+
+static void signal_daddy (const int);
+static void start_timer (struct ft*);
 
 int main (int argc, char **argv)
 {
@@ -126,7 +133,13 @@ int main (int argc, char **argv)
 
 	set_rendering_font(&ft.font, ft.args.font);
 	config_terminal_intro(&ft);
+	if (set_up_signals() == false)
+	{
+		config_terminal_outro(&ft);
+		err(EXIT_FAILURE, "fatal internal; cannot continue");
+	}
 
+	start_timer(&ft);
 	config_terminal_outro(&ft);
 	return 0;
 }
@@ -252,4 +265,45 @@ static void config_terminal_outro (struct ft *ft)
 
 	tcsetattr(STDIN_FD, TCSANOW, &ft->stdterm);
 	fcntl(STDIN_FD, F_SETFL, ft->stdfcntl);
+}
+
+static bool set_up_signals (void)
+{
+	struct sigaction s;
+	s.sa_handler = signal_daddy;
+	sigemptyset(&s.sa_mask);
+
+	errno = 0;
+	int sigret = 0;
+	sigret = sigaction(SIGINT,   &s, NULL);
+	sigret = sigaction(SIGHUP,   &s, NULL);
+	sigret = sigaction(SIGQUIT,  &s, NULL);
+	sigret = sigaction(SIGTERM,  &s, NULL);
+	sigret = sigaction(SIGWINCH, &s, NULL);
+	sigret = sigaction(SIGTSTP,  &s, NULL);
+
+	if (sigret) { return false; }
+	return true;
+}
+
+static void signal_daddy (const int sg)
+{
+	switch (sg)
+	{
+		case SIGINT  :
+		case SIGHUP  :
+		case SIGQUIT :
+		case SIGTERM : { break; }
+		case SIGWINCH: { break; }
+		case SIGTSTP : { break; }
+	}
+}
+
+static void start_timer (struct ft*)
+{
+	while (1)
+	{
+		const char psd = getchar();
+		if (psd == 'q') { break; }
+	}
 }
