@@ -96,9 +96,8 @@ static const char *const States[] =
 	"paused "
 };
 
-static bool WannaQuit  = false;
-static bool WinResized = false;
-static bool ProcPaused = false;
+static volatile sig_atomic_t WannaQuit  = 0;
+static volatile sig_atomic_t WinResized = 0;
 
 static inline void obtain_window_dimensions (unsigned short *rows, unsigned short *cols)
 {
@@ -125,7 +124,7 @@ static void signal_handler (const int);
 static void task_prelude (const unsigned short, const unsigned);
 
 static void start_timer (struct ft*, const bool, const bool);
-static void render_constants (const struct font*);
+static void render_constants (const struct font*, const char*);
 
 static void render_dyanmics (const struct font*, const unsigned int, const enum temps_kind, const enum state);
 
@@ -298,7 +297,14 @@ static void config_terminal_intro (struct ft *ft)
 	tcgetattr(STDIN_FD, &ft->stdterm);
 	struct termios custom = ft->stdterm;
 
+	/* prevent ctrl-s and ctrl-q (pause and resume)
+	 * no echo, input char by char
+	 * do not process output; print it as-is
+	 * */
+	custom.c_iflag &= ~(IXON | IXOFF | ICRNL);
 	custom.c_lflag &= ~(ICANON | ECHO);
+	custom.c_oflag &= ~(OPOST);
+
 	tcsetattr(STDIN_FD, TCSANOW, &custom);
 
 	ft->stdfcntl = fcntl(STDIN_FD, F_GETFL);
@@ -316,20 +322,28 @@ static void config_terminal_outro (struct ft *ft)
 
 static bool set_up_signals (void)
 {
-	struct sigaction s;
-	s.sa_handler = signal_handler;
-	sigemptyset(&s.sa_mask);
+	struct sigaction s_ok;
+	s_ok.sa_handler = signal_handler;
+	s_ok.sa_flags = SA_RESTART;
+	sigemptyset(&s_ok.sa_mask);
 
 	errno = 0;
 	int sigret = 0;
-	sigret = sigaction(SIGINT,   &s, NULL);
-	sigret = sigaction(SIGHUP,   &s, NULL);
-	sigret = sigaction(SIGQUIT,  &s, NULL);
-	sigret = sigaction(SIGTERM,  &s, NULL);
-	sigret = sigaction(SIGWINCH, &s, NULL);
-	sigret = sigaction(SIGTSTP,  &s, NULL);
+	sigret = sigaction(SIGINT,   &s_ok, NULL);
+	sigret = sigaction(SIGHUP,   &s_ok, NULL);
+	sigret = sigaction(SIGQUIT,  &s_ok, NULL);
+	sigret = sigaction(SIGTERM,  &s_ok, NULL);
+	sigret = sigaction(SIGWINCH, &s_ok, NULL);
 
 	if (sigret) { return false; }
+
+	sigset_t s_no;
+	sigemptyset(&s_no);
+
+	sigaddset(&s_no, SIGTSTP);
+	sigaddset(&s_no, SIGCONT);
+
+    sigprocmask(SIG_BLOCK, &s_no, NULL);
 	return true;
 }
 
@@ -342,7 +356,6 @@ static void signal_handler (const int sg)
 		case SIGQUIT :
 		case SIGTERM : { WannaQuit  = true; break; }
 		case SIGWINCH: { WinResized = true; break; }
-		case SIGTSTP : { ProcPaused = true; break; }
 	}
 }
 
@@ -373,7 +386,7 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 {
 	make_sure_content_fits_in(ft, FONT_NO_DISPLAYED_CHARS, EXTRA_RENDERED_LINES, 0, false);
 	task_prelude(ft->winrows, ft->wincols);
-	render_constants(&ft->font);
+	render_constants(&ft->font, ft->args.task);
 
 	int s_pssdby = ft->args.time * 60, dt = (c_seen || u_seen) ? 1 : -1;
 	int h_render = -1, m_render = -1, s_render = -1;
@@ -391,25 +404,32 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 	}
 	if (u_seen) { s_pssdby = 0; }
 
-	bool paused = false;
+	bool paused = false, justresized = false;
 	enum state state = (c_seen) ? state_working : state_noneeded;
 
+	useconds_t timer = 0;
 	while (!WannaQuit)
 	{
-		const char key = getchar();
-		if (key == ' ')        { paused = !paused; if (c_seen) { state = (enum state) 1 - state; } }
-		if (key == 'q')        { break; }
-		if (paused && !c_seen) { sleep(1); continue; }
 		if (WinResized)
 		{
 			make_sure_content_fits_in(ft, FONT_NO_DISPLAYED_CHARS, EXTRA_RENDERED_LINES, 0, false);
-			render_constants(&ft->font);
-			WinResized = false;
-			if (!c_seen) { h_render = -1, m_render = -1, s_render = -1; }
+			render_constants(&ft->font, ft->args.task);
+			WinResized = 0;
+			justresized = true;
 
-			sleep(1);
-			continue;
+			if (!c_seen) { h_render = -1; m_render = -1; s_render = -1; }
+			state = (c_seen) ? state_working : state_noneeded;
 		}
+
+		const char key = getchar();
+
+		usleep(1000);
+		timer += 1000;
+
+		if (key == ' ')        { paused = !paused; if (c_seen) { state = (enum state) 1 - state; } }
+		if (key == 'q')        { break; }
+		if (paused && !c_seen) { sleep(1); continue; }
+		if (timer < 1000000)   { continue; }
 
 		if (c_seen)
 		{
@@ -433,15 +453,14 @@ static void start_timer (struct ft *ft, const bool c_seen, const bool u_seen)
 			if (h_computed != h_render) { render_dyanmics(&ft->font, h_computed, temps_is_hours, state);   h_render = h_computed; }
 		}
 
-		sleep(1);
 		s_pssdby += dt;
-
 		if (!paused) { ft->secworked++; }
 		if (s_pssdby == 0) { break; }
+		if (timer == 1000000) { timer = 0; }
 	}
 }
 
-static void render_constants (const struct font *font)
+static void render_constants (const struct font *font, const char *taskname)
 {
 	printf("\x1b[2J");
 
@@ -462,7 +481,7 @@ static void render_constants (const struct font *font)
 		);
 
 	const unsigned short newr = font->srow + font->rows + 1;
-	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m", newr, font->scol, "task");
+	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m", newr, font->scol, taskname);
 	printf("\x1b[%d;%dHpress 'q' to quit and save", newr + 1, font->scol);
 	fflush(stdout);
 }
