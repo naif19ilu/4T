@@ -1,4 +1,5 @@
 #include "front.h"
+#include "common.h"
 
 #include <stdio.h>
 #include <signal.h>
@@ -9,8 +10,6 @@
 #define INTRO_ANSI "\x1b[?1049h\x1b[?25l\x1b[H"
 #define OUTRO_ANSI "\x1b[?1049l\x1b[?25h"
 
-#define TRUE       1
-#define FALSE      0
 
 struct front
 {
@@ -21,7 +20,7 @@ struct font
 {
 };
 
-static volatile sig_atomic_t Quit = FALSE, Resize = FALSE;
+static volatile sig_atomic_t Resize = FALSE;
 
 static void intro_ (struct front*);
 static void outro_ (struct front*);
@@ -33,14 +32,49 @@ void frontend_execute (const char *taskname, const char *fontname, const int tim
 	struct front front;
 	intro_(&front);
 
-	while (!Quit)
+	struct timeval tv;
+	fd_set inset;
+
+	bool_t quit = FALSE;
+
+	static const char *const a[] =
 	{
-		char pressed;
-		read(STDIN_FILENO, &pressed, 1);
+		"waiting.  ",
+		"waiting.. ",
+	};
 
-		if (pressed == 'q') { break; }
+	int a_ = 1;
 
-		printf("pressed: %c %d\n", pressed, pressed);
+	while (!quit)
+	{
+		tv.tv_sec  = 1;
+		tv.tv_usec = 0;
+
+		FD_ZERO(&inset);
+		FD_SET(STDIN_FILENO, &inset);
+
+		const int ret = select(STDOUT_FILENO, &inset, NULL, NULL, &tv);
+		if (ret == -1 && Resize)
+		{
+			printf("needs to resize\n\r");
+			Resize = FALSE;
+			fflush(stdout);
+			continue;
+		}
+
+		if (FD_ISSET(STDIN_FILENO, &inset))
+		{
+			const char key = fgetc(stdin);
+
+			printf("\x1b[2J\x1b[Hpressed: %c\n", key);
+			if (key == 'q') quit = TRUE;
+		}
+		else
+		{
+			printf("%s %d\n\r", a[(a_ % 3) - 1], a_);
+			a_++;
+			if (a_==3) a_=1;
+		}
 		fflush(stdout);
 	}
 
@@ -50,29 +84,25 @@ void frontend_execute (const char *taskname, const char *fontname, const int tim
 static void intro_ (struct front *front)
 {
 	/* Signal hanlder
-	 * - In case of abortion attempt
-	 *   the program will try to save
-	 *   progress made so far
-	 *
-	 * - In case of terminal resizing
-	 *   the program will redraw everything
-	 *   and will try to continue
-	 *
-	 * - CTRL-Z is ignored
+	 * All brute force methods to exit
+	 * the program will be ignore (as
+	 * long as it is possible), the only
+	 * signal the program will handle is
+	 * when the terminal gets resized
 	 */
 	struct sigaction s;
 	s.sa_handler = signal_handler;
 	sigemptyset(&s.sa_mask);
 
-	sigaction(SIGINT,   &s, NULL);
-	sigaction(SIGQUIT,  &s, NULL);
-	sigaction(SIGHUP,   &s, NULL);
 	sigaction(SIGWINCH, &s, NULL);
 
 	sigset_t block;
 	sigemptyset(&block);
 
 	sigaddset(&block, SIGTSTP);
+	sigaddset(&block, SIGINT);
+	sigaddset(&block, SIGQUIT);
+	sigaddset(&block, SIGHUP);
 	sigprocmask(SIG_BLOCK, &block, NULL);
 
 	/* Terminal configuration
@@ -105,11 +135,6 @@ static void outro_ (struct front *front)
 
 static void signal_handler (int s)
 {
-	switch (s)
-	{
-		case SIGINT  :
-		case SIGQUIT :
-		case SIGHUP  : { Quit   = TRUE; break; }
-		case SIGWINCH: { Resize = TRUE; break; }
-	}
+	(void) s;
+	Resize = TRUE;
 }

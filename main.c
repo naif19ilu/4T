@@ -1,5 +1,6 @@
 #include "cxa.h"
 #include "front.h"
+#include "common.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -12,7 +13,6 @@
 #define FLAG_TIME_DEFT 30
 #define FLAG_TASK_DEFT ""
 
-#define PROGRAM_NAME   "4T"
 #define PROGRAM_USAGE  "4T --task <taskname> [flags]"
 
 struct program
