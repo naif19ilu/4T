@@ -7,6 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <termios.h>
+#include <sys/ioctl.h>
 
 #define INTRO_ANSI         "\x1b[?1049h\x1b[?25l\x1b[H"
 #define OUTRO_ANSI         "\x1b[?1049l\x1b[?25h"
@@ -25,57 +26,43 @@ struct font_t
 struct front
 {
 	struct termios deftty;
+	struct font_t  font;
+	const char     *fontname, *taskname;
+	unsigned int   w_height, w_width;
+	unsigned int   s_left, s_pssd;
 };
 
 static volatile sig_atomic_t Resize = FALSE;
 
-static void intro_ (struct front*);
+static inline void get_window_dimensions (unsigned int *w_height, unsigned int *w_width)
+{
+	struct winsize szs;
+	ioctl(STDIN_FILENO, TIOCGWINSZ, &szs);
+
+	*w_height = szs.ws_row;
+	*w_width  = szs.ws_col;
+}
+
+static void intro_ (struct termios*, unsigned int*, unsigned int*);
 static void outro_ (struct front*);
 
 static void signal_handler (int);
 static struct font_t pick_final_font (const char*);
 
+static void main_loop (struct front*);
+
 void frontend_execute (const char *taskname, const char *fontname, const int time)
 {
-	struct font_t font = pick_final_font(fontname);
-	bool_t quit = FALSE, pause = FALSE;
+	struct front front = {
+		.font     = pick_final_font(fontname),
+		.fontname = fontname,
+		.taskname = taskname,
+		.s_left   = time * 60,
+		.s_pssd   = 0
+	};
+	intro_(&front.deftty, &front.w_height, &front.w_width);
 
-	struct front front;
-	intro_(&front);
-
-	struct timeval tv;
-	fd_set inset;
-
-	while (!quit)
-	{
-		tv.tv_sec  = 1;
-		tv.tv_usec = 0;
-
-		FD_ZERO(&inset);
-		FD_SET(STDIN_FILENO, &inset);
-
-		const int ret = select(STDOUT_FILENO, &inset, NULL, NULL, &tv);
-		if (ret == -1 && Resize)
-		{
-			Resize = FALSE;
-			continue;
-		}
-
-		if (FD_ISSET(STDIN_FILENO, &inset))
-		{
-			switch (fgetc(stdin))
-			{
-				case 'q': quit  = TRUE;   break;
-				case ' ': pause = !pause; break;
-				case '+': break;
-				case 'L': break;
-			}
-
-			continue;
-		}
-		fflush(stdout);
-	}
-
+	main_loop(&front);
 	outro_(&front);
 }
 
@@ -83,10 +70,10 @@ void frontend_list_available_fonts (void)
 {
 	printf("%s - list of available fonts\n", PROGRAM_NAME);
 	for (unsigned short i = 0; i < NO_FONTS; i++)
-		printf("  - %s\n", FontNames[i]);
+		printf(" * %s\n", FontNames[i]);
 }
 
-static void intro_ (struct front *front)
+static void intro_ (struct termios *deftty, unsigned int *w_height, unsigned int *w_width)
 {
 	/* Signal hanlder
 	 * All brute force methods to exit
@@ -116,8 +103,8 @@ static void intro_ (struct front *front)
 	 *  - no displaying characters & provide chars as they're typed
 	 *  - only read one characters to be read
 	 */
-	tcgetattr(STDIN_FILENO, &front->deftty);
-	struct termios custty = front->deftty;
+	tcgetattr(STDIN_FILENO, deftty);
+	struct termios custty = *deftty;
 
 	custty.c_iflag &= ~(IXON | IXOFF);
 	custty.c_oflag &= ~(OPOST);
@@ -125,6 +112,7 @@ static void intro_ (struct front *front)
 	custty.c_cc[VMIN] = 1;
 
 	tcsetattr(STDIN_FILENO, TCSANOW, &custty);
+	get_window_dimensions(w_height, w_width);
 
 	printf(INTRO_ANSI);
 	fflush(stdout);
@@ -166,5 +154,49 @@ static struct font_t pick_final_font (const char *name)
 		" $ %s --list\n";
 		fprintf(stderr, errmsg, PROGRAM_NAME, name, PROGRAM_NAME);
 		exit(EXIT_FAILURE);
+	}
+}
+
+static void main_loop (struct front *front)
+{
+	bool_t quit = FALSE, pause = FALSE;
+
+	struct timeval tv;
+	fd_set inset;
+
+	printf("%d %d", front->w_height, front->w_width);
+
+	while (!quit)
+	{
+		tv.tv_sec  = 1;
+		tv.tv_usec = 0;
+
+		FD_ZERO(&inset);
+		FD_SET(STDIN_FILENO, &inset);
+
+		const int ret = select(STDOUT_FILENO, &inset, NULL, NULL, &tv);
+		if (ret == -1 && Resize)
+		{
+			get_window_dimensions(&front->w_height, &front->w_width);
+			printf("\x1b[2J\x1b[H%d %d", front->w_height, front->w_width);
+			fflush(stdout);
+			Resize = FALSE;
+			continue;
+		}
+
+		if (FD_ISSET(STDIN_FILENO, &inset))
+		{
+			switch (fgetc(stdin))
+			{
+				case 'q': quit  = TRUE;   break;
+				case ' ': pause = !pause; break;
+				case '+': break;
+				case 'L': break;
+			}
+
+			continue;
+		}
+		printf("\x1b[2J\x1b[Hnormal...");
+		fflush(stdout);
 	}
 }

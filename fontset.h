@@ -11,7 +11,7 @@ static const char *const FontNames[NO_FONTS] =
 	"larry3d",
 	"raw",
 	"rectangles",
-	"short",
+	"short (default)",
 };
 
 static const struct font_t f_bulbhead =

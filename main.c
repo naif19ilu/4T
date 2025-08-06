@@ -6,11 +6,11 @@
 #include <string.h>
 
 #define FLAG_TASK_DESC "task name (mandatory)"
-#define FLAG_FONT_DESC "font (default: small)"
+#define FLAG_FONT_DESC "font (default: short)"
 #define FLAG_TIME_DESC "work time in mins (default: 30)"
 #define FLAG_LIST_DESC "list all available fonts"
 
-#define FLAG_FONT_DEFT "small"
+#define FLAG_FONT_DEFT "short"
 #define FLAG_TIME_DEFT 30
 #define FLAG_TASK_DEFT ""
 
@@ -26,7 +26,6 @@ struct program
 };
 
 static void set_default_flags (struct program*);
-static void list_available_fonts (void);
 
 int main (int argc, char **argv)
 {
