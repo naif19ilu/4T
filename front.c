@@ -9,11 +9,14 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 
-#define INTRO_ANSI         "\x1b[?1049h\x1b[?25l\x1b[H"
-#define OUTRO_ANSI         "\x1b[?1049l\x1b[?25h"
+#define INTRO_ANSI             "\x1b[?1049h\x1b[?25l\x1b[H"
+#define OUTRO_ANSI             "\x1b[?1049l\x1b[?25h"
 
-#define WIDEST_FONT        17
-#define FONT_CHARSET_SIZE  11
+#define WIDEST_FONT            17
+#define FONT_CHARSET_SIZE      11
+
+#define RENDER_CHARSET_SIZE    8
+#define EXTRA_RENDERED_LINES   0
 
 struct font_t
 {
@@ -28,13 +31,13 @@ struct front
 	struct termios deftty;
 	struct font_t  font;
 	const char     *fontname, *taskname;
-	unsigned int   w_height, w_width;
 	unsigned int   s_left, s_pssd;
+	unsigned short w_height, w_width;
 };
 
 static volatile sig_atomic_t Resize = FALSE;
 
-static inline void get_window_dimensions (unsigned int *w_height, unsigned int *w_width)
+static inline void get_window_dimensions (unsigned short *w_height, unsigned short *w_width)
 {
 	struct winsize szs;
 	ioctl(STDIN_FILENO, TIOCGWINSZ, &szs);
@@ -43,13 +46,14 @@ static inline void get_window_dimensions (unsigned int *w_height, unsigned int *
 	*w_width  = szs.ws_col;
 }
 
-static void intro_ (struct termios*, unsigned int*, unsigned int*);
-static void outro_ (struct front*);
+static void intro_ (struct termios*);
+static void outro_ (struct termios*);
 
 static void signal_handler (int);
 static struct font_t pick_final_font (const char*);
 
 static void main_loop (struct front*);
+static void fits_in (struct front*, const unsigned short, const unsigned short, const bool_t);
 
 void frontend_execute (const char *taskname, const char *fontname, const int time)
 {
@@ -60,10 +64,10 @@ void frontend_execute (const char *taskname, const char *fontname, const int tim
 		.s_left   = time * 60,
 		.s_pssd   = 0
 	};
-	intro_(&front.deftty, &front.w_height, &front.w_width);
 
+	intro_(&front.deftty);
 	main_loop(&front);
-	outro_(&front);
+	outro_(&front.deftty);
 }
 
 void frontend_list_available_fonts (void)
@@ -73,7 +77,7 @@ void frontend_list_available_fonts (void)
 		printf(" * %s\n", FontNames[i]);
 }
 
-static void intro_ (struct termios *deftty, unsigned int *w_height, unsigned int *w_width)
+static void intro_ (struct termios *deftty)
 {
 	/* Signal hanlder
 	 * All brute force methods to exit
@@ -112,15 +116,14 @@ static void intro_ (struct termios *deftty, unsigned int *w_height, unsigned int
 	custty.c_cc[VMIN] = 1;
 
 	tcsetattr(STDIN_FILENO, TCSANOW, &custty);
-	get_window_dimensions(w_height, w_width);
 
 	printf(INTRO_ANSI);
 	fflush(stdout);
 }
 
-static void outro_ (struct front *front)
+static void outro_ (struct termios *deftty)
 {
-	tcsetattr(STDIN_FILENO, TCSANOW, &front->deftty);
+	tcsetattr(STDIN_FILENO, TCSANOW, deftty);
 
 	printf(OUTRO_ANSI);
 	fflush(stdout);
@@ -164,7 +167,7 @@ static void main_loop (struct front *front)
 	struct timeval tv;
 	fd_set inset;
 
-	printf("%d %d", front->w_height, front->w_width);
+	fits_in(front, RENDER_CHARSET_SIZE, EXTRA_RENDERED_LINES, TRUE);
 
 	while (!quit)
 	{
@@ -178,8 +181,6 @@ static void main_loop (struct front *front)
 		if (ret == -1 && Resize)
 		{
 			get_window_dimensions(&front->w_height, &front->w_width);
-			printf("\x1b[2J\x1b[H%d %d", front->w_height, front->w_width);
-			fflush(stdout);
 			Resize = FALSE;
 			continue;
 		}
@@ -196,7 +197,28 @@ static void main_loop (struct front *front)
 
 			continue;
 		}
-		printf("\x1b[2J\x1b[Hnormal...");
-		fflush(stdout);
 	}
+}
+
+static void fits_in (struct front* front, const unsigned short setsz, const unsigned short plsrws, const bool_t timerunning)
+{
+	get_window_dimensions(&front->w_height, &front->w_width);
+
+	const unsigned short w_needed = front->font.width  * setsz;
+	const unsigned short h_needed = front->font.height + plsrws;
+
+	if (w_needed < front->w_width && h_needed < front->w_height) return;
+
+	static const char *const errmsg =
+	"%s:error: cannot continue since the dimensions are too small\n"
+	" minimum dimensions: %d rows by %d columns\n"
+	" current dimensions: %d rows by %d columns\n"
+	" all progress (if any) will be saved!\n";
+
+	if (timerunning) { outro_(&front->deftty); }
+
+	fprintf(stderr, errmsg, PROGRAM_NAME, w_needed, h_needed, front->w_height, front->w_width);
+	fflush(stderr);
+
+	exit(EXIT_FAILURE);
 }
