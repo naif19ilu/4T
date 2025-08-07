@@ -89,10 +89,13 @@ void frontend_list_available_fonts (void)
 void frontend_do_preview (const char *fontname)
 {
 	struct front front = { .font = pick_final_font(fontname) };
-	fits_in(&front, FONT_CHARSET_SIZE, 0, FALSE);
+	fits_in(&front, FONT_CHARSET_SIZE + 1, 0, FALSE);
+
+	if (Terminated) return;
 
 	for (unsigned short line = 0; line < front.font.height; line++)
-		printf("%s%s%s%s%s%s%s%s%s%s%s\n\r",
+		printf("%*s%s%s%s%s%s%s%s%s%s%s\n\r",
+		front.font.width * 2,
 		front.font.set[ 0][line],
 		front.font.set[ 1][line],
 		front.font.set[ 2][line],
@@ -245,8 +248,10 @@ static void fits_in (struct front* front, const unsigned short setsz, const unsi
 	" current dimensions: %d rows by %d columns\n"
 	" all progress (if any) will be saved!\n";
 
-	if (timerunning) { outro_(&front->deftty); Terminated = TRUE; }
+	if (timerunning) { outro_(&front->deftty); }
 
 	fprintf(stderr, errmsg, PROGRAM_NAME, w_needed, h_needed, front->w_height, front->w_width);
 	fflush(stderr);
+
+	Terminated = TRUE;
 }
