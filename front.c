@@ -50,8 +50,14 @@ static inline void get_window_dimensions (unsigned short *w_height, unsigned sho
 	struct winsize szs;
 	ioctl(STDIN_FILENO, TIOCGWINSZ, &szs);
 
-	*w_height = szs.ws_row;
-	*w_width  = szs.ws_col;
+	*w_height = (unsigned short) szs.ws_row;
+	*w_width  = (unsigned short) szs.ws_col;
+}
+
+static inline void compute_rendering_origin (struct font_t *font, const unsigned short w_height, const unsigned short w_width, unsigned short *ori_y,  unsigned short *ori_x)
+{
+	*ori_y = (w_height - font->height) >> 1;
+	*ori_x = (w_width  - font->width * RENDER_CHARSET_SIZE) >> 1;
 }
 
 static void intro_ (struct termios*);
@@ -62,6 +68,8 @@ static struct font_t pick_final_font (const char*);
 
 static void main_loop (struct front*);
 static void fits_in (struct front*, const unsigned short, const unsigned short, const bool_t);
+
+static void render_constant (struct font_t*, const unsigned short, const unsigned);
 
 void frontend_execute (const char *taskname, const char *fontname, const int time)
 {
@@ -200,7 +208,11 @@ static void main_loop (struct front *front)
 	struct timeval tv;
 	fd_set inset;
 
+	unsigned short ori_y, ori_x;
+
 	fits_in(front, RENDER_CHARSET_SIZE, EXTRA_RENDERED_LINES, TRUE);
+	compute_rendering_origin(&front->font, front->w_height, front->w_width, &ori_y, &ori_x);
+	render_constant(&front->font, ori_y, ori_x);
 
 	while (!quit && !Terminated)
 	{
@@ -254,4 +266,18 @@ static void fits_in (struct front* front, const unsigned short setsz, const unsi
 	fflush(stderr);
 
 	Terminated = TRUE;
+}
+
+static void render_constant (struct font_t *font, const unsigned short ori_y, const unsigned ori_x)
+{
+	const unsigned short coffset[] =
+	{
+		font->width * 2,
+		font->width * 5,
+	};
+
+	for (unsigned short i = 0; i < 2; i++)
+		for (unsigned short line = 0; line < font->height; line++)
+			printf("\x1b[5m\x1b[%d;%dH%s\x1b[0m", ori_y + line, ori_x + coffset[i], font->set[10][line]);
+	fflush(stdout);
 }
