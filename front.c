@@ -35,7 +35,8 @@ struct front
 	unsigned short w_height, w_width;
 };
 
-static volatile sig_atomic_t Resize = FALSE;
+static volatile sig_atomic_t Resize     = FALSE;
+static bool_t                Terminated = FALSE;
 
 static inline void get_window_dimensions (unsigned short *w_height, unsigned short *w_width)
 {
@@ -67,7 +68,8 @@ void frontend_execute (const char *taskname, const char *fontname, const int tim
 
 	intro_(&front.deftty);
 	main_loop(&front);
-	outro_(&front.deftty);
+
+	if (!Terminated) outro_(&front.deftty);
 }
 
 void frontend_list_available_fonts (void)
@@ -169,7 +171,7 @@ static void main_loop (struct front *front)
 
 	fits_in(front, RENDER_CHARSET_SIZE, EXTRA_RENDERED_LINES, TRUE);
 
-	while (!quit)
+	while (!quit && !Terminated)
 	{
 		tv.tv_sec  = 1;
 		tv.tv_usec = 0;
@@ -220,5 +222,5 @@ static void fits_in (struct front* front, const unsigned short setsz, const unsi
 	fprintf(stderr, errmsg, PROGRAM_NAME, w_needed, h_needed, front->w_height, front->w_width);
 	fflush(stderr);
 
-	exit(EXIT_FAILURE);
+	Terminated = TRUE;
 }
