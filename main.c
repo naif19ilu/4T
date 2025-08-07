@@ -9,6 +9,7 @@
 #define FLAG_FONT_DESC "font (default: short)"
 #define FLAG_TIME_DESC "work time in mins (default: 30)"
 #define FLAG_LIST_DESC "list all available fonts"
+#define FLAG_PREV_DESC "do preview of <fontname> font"
 
 #define FLAG_FONT_DEFT "short"
 #define FLAG_TIME_DEFT 30
@@ -38,11 +39,18 @@ int main (int argc, char **argv)
 		CXA_SET_STR("font", FLAG_FONT_DESC, &prg.args.font, CXA_FLAG_TAKER_YES, 'f'),
 		CXA_SET_STR("time", FLAG_TIME_DESC, &prg.args.time, CXA_FLAG_TAKER_YES, 'T'),
 		CXA_SET_CHR("list", FLAG_LIST_DESC, NULL,           CXA_FLAG_TAKER_NON, 'L'),
+		CXA_SET_STR("prev", FLAG_PREV_DESC, &prg.args.font, CXA_FLAG_TAKER_YES, 'p'),
 
 		CXA_SET_END
 	};
 
 	cxa_clean(cxa_execute((unsigned char) argc, argv, flags, PROGRAM_NAME));
+
+	if (flags[4].meta & CXA_FLAG_SEEN_MASK)
+	{
+		frontend_do_preview(prg.args.font);
+		return 0;
+	}
 
 	if (flags[3].meta & CXA_FLAG_SEEN_MASK)
 	{

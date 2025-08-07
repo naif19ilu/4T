@@ -15,7 +15,14 @@
 #define WIDEST_FONT            17
 #define FONT_CHARSET_SIZE      11
 
+/* Number of characters defined within a font_t
+ * to be displayed in screen xx:xx:xx (8)
+ */
 #define RENDER_CHARSET_SIZE    8
+/* Besides the time left/passed we need to display
+ * other information, this number indicates how many
+ * lines are going to be used
+ */
 #define EXTRA_RENDERED_LINES   0
 
 struct font_t
@@ -77,6 +84,27 @@ void frontend_list_available_fonts (void)
 	printf("%s - list of available fonts\n", PROGRAM_NAME);
 	for (unsigned short i = 0; i < NO_FONTS; i++)
 		printf(" * %s\n", FontNames[i]);
+}
+
+void frontend_do_preview (const char *fontname)
+{
+	struct front front = { .font = pick_final_font(fontname) };
+	fits_in(&front, FONT_CHARSET_SIZE, 0, FALSE);
+
+	for (unsigned short line = 0; line < front.font.height; line++)
+		printf("%s%s%s%s%s%s%s%s%s%s%s\n\r",
+		front.font.set[ 0][line],
+		front.font.set[ 1][line],
+		front.font.set[ 2][line],
+		front.font.set[ 3][line],
+		front.font.set[ 4][line],
+		front.font.set[ 5][line],
+		front.font.set[ 6][line],
+		front.font.set[ 7][line],
+		front.font.set[ 8][line],
+		front.font.set[ 9][line],
+		front.font.set[10][line]
+		);
 }
 
 static void intro_ (struct termios *deftty)
@@ -217,10 +245,8 @@ static void fits_in (struct front* front, const unsigned short setsz, const unsi
 	" current dimensions: %d rows by %d columns\n"
 	" all progress (if any) will be saved!\n";
 
-	if (timerunning) { outro_(&front->deftty); }
+	if (timerunning) { outro_(&front->deftty); Terminated = TRUE; }
 
 	fprintf(stderr, errmsg, PROGRAM_NAME, w_needed, h_needed, front->w_height, front->w_width);
 	fflush(stderr);
-
-	Terminated = TRUE;
 }
