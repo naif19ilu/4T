@@ -23,7 +23,9 @@
  * other information, this number indicates how many
  * lines are going to be used
  */
-#define EXTRA_RENDERED_LINES   0
+#define EXTRA_RENDERED_LINES   3
+
+#define COLON_INDEX            10
 
 struct font_t
 {
@@ -60,6 +62,18 @@ static inline void compute_rendering_origin (struct font_t *font, const unsigned
 	*ori_x = (w_width  - font->width * RENDER_CHARSET_SIZE) >> 1;
 }
 
+enum State
+{
+	state_wkg = 0,
+	state_psd = 1,
+};
+
+static const char *const States[] =
+{
+	"working",
+	"paused "
+};
+
 static void intro_ (struct termios*);
 static void outro_ (struct termios*);
 
@@ -69,7 +83,7 @@ static struct font_t pick_final_font (const char*);
 static void main_loop (struct front*);
 static void fits_in (struct front*, const unsigned short, const unsigned short, const bool_t);
 
-static void render_constant (struct font_t*, const unsigned short, const unsigned);
+static void render_constant (struct font_t*, const unsigned short, const unsigned, const char*);
 
 void frontend_execute (const char *taskname, const char *fontname, const int time)
 {
@@ -165,7 +179,6 @@ static void intro_ (struct termios *deftty)
 static void outro_ (struct termios *deftty)
 {
 	tcsetattr(STDIN_FILENO, TCSANOW, deftty);
-
 	printf(OUTRO_ANSI);
 	fflush(stdout);
 }
@@ -203,16 +216,13 @@ static struct font_t pick_final_font (const char *name)
 
 static void main_loop (struct front *front)
 {
-	bool_t quit = FALSE, pause = FALSE;
+	bool_t quit = FALSE, pause = FALSE, render_1 = TRUE;
 
 	struct timeval tv;
 	fd_set inset;
 
 	unsigned short ori_y, ori_x;
-
-	fits_in(front, RENDER_CHARSET_SIZE, EXTRA_RENDERED_LINES, TRUE);
-	compute_rendering_origin(&front->font, front->w_height, front->w_width, &ori_y, &ori_x);
-	render_constant(&front->font, ori_y, ori_x);
+	enum State state = state_wkg;
 
 	while (!quit && !Terminated)
 	{
@@ -222,11 +232,19 @@ static void main_loop (struct front *front)
 		FD_ZERO(&inset);
 		FD_SET(STDIN_FILENO, &inset);
 
-		const int ret = select(STDOUT_FILENO, &inset, NULL, NULL, &tv);
-		if (ret == -1 && Resize)
+		const int ret = select(STDIN_FILENO + 1, &inset, NULL, NULL, &tv);
+		if ((ret == -1 && Resize) || render_1)
 		{
-			get_window_dimensions(&front->w_height, &front->w_width);
-			Resize = FALSE;
+			printf("\x1b[2J");
+
+			fits_in(front, RENDER_CHARSET_SIZE, EXTRA_RENDERED_LINES, TRUE);
+			if (Terminated == TRUE) break;
+
+			compute_rendering_origin(&front->font, front->w_height, front->w_width, &ori_y, &ori_x);
+			render_constant(&front->font, ori_y, ori_x, front->taskname);
+
+			Resize   = FALSE;
+			render_1 = FALSE;
 			continue;
 		}
 
@@ -234,8 +252,8 @@ static void main_loop (struct front *front)
 		{
 			switch (fgetc(stdin))
 			{
-				case 'q': quit  = TRUE;   break;
-				case ' ': pause = !pause; break;
+				case 'q': quit  = TRUE; break;
+				case ' ': pause = !pause; state = 1 - state; break;
 				case '+': break;
 				case 'L': break;
 			}
@@ -268,7 +286,7 @@ static void fits_in (struct front* front, const unsigned short setsz, const unsi
 	Terminated = TRUE;
 }
 
-static void render_constant (struct font_t *font, const unsigned short ori_y, const unsigned ori_x)
+static void render_constant (struct font_t *font, const unsigned short ori_y, const unsigned ori_x, const char *task)
 {
 	const unsigned short coffset[] =
 	{
@@ -278,6 +296,13 @@ static void render_constant (struct font_t *font, const unsigned short ori_y, co
 
 	for (unsigned short i = 0; i < 2; i++)
 		for (unsigned short line = 0; line < font->height; line++)
-			printf("\x1b[5m\x1b[%d;%dH%s\x1b[0m", ori_y + line, ori_x + coffset[i], font->set[10][line]);
+			printf("\x1b[5m\x1b[%d;%dH%s\x1b[0m", ori_y + line, ori_x + coffset[i], font->set[COLON_INDEX][line]);
+
+	const unsigned short loffset = ori_y + font->height + 2;
+	
+	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m",            loffset + 0, ori_x, task);
+	printf("\x1b[%d;%dH\x1b[2mpress 'q' to save & quit\x1b[0m", loffset + 1, ori_x);
+	printf("\x1b[%d;%dHstate: %s",                              loffset + 2, ori_x, *States);
+
 	fflush(stdout);
 }
