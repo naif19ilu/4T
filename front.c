@@ -40,7 +40,7 @@ struct front
 	struct termios deftty;
 	struct font_t  font;
 	const char     *fontname, *taskname;
-	unsigned int   s_left, s_pssd;
+	unsigned int   s_total, s_workd;
 	unsigned short w_height, w_width;
 };
 
@@ -62,10 +62,24 @@ static inline void compute_rendering_origin (struct font_t *font, const unsigned
 	*ori_x = (w_width  - font->width * RENDER_CHARSET_SIZE) >> 1;
 }
 
-enum State
+enum state
 {
 	state_wkg = 0,
 	state_psd = 1,
+};
+
+/* besides of saying what type of metric is, it also provides
+ * the offset at which the value should be rendered
+ * hh:mm:ss
+ * |  |  ` sixth one
+ * |  ` third character to be redered
+ * 0 offset
+ */
+enum temps
+{
+	temps_hur = 0,
+	temps_min = 3,
+	temps_sec = 6,
 };
 
 static const char *const States[] =
@@ -84,6 +98,7 @@ static void main_loop (struct front*);
 static void fits_in (struct front*, const unsigned short, const unsigned short, const bool_t);
 
 static void render_constant (struct font_t*, const unsigned short, const unsigned, const char*);
+static void render_dynamic (struct font_t*, const unsigned int, const unsigned short, const unsigned short, const enum temps);
 
 void frontend_execute (const char *taskname, const char *fontname, const int time)
 {
@@ -91,8 +106,8 @@ void frontend_execute (const char *taskname, const char *fontname, const int tim
 		.font     = pick_final_font(fontname),
 		.fontname = fontname,
 		.taskname = taskname,
-		.s_left   = time * 60,
-		.s_pssd   = 0
+		.s_total  = time * 60,
+		.s_workd  = 0
 	};
 
 	intro_(&front.deftty);
@@ -222,11 +237,11 @@ static void main_loop (struct front *front)
 	fd_set inset;
 
 	unsigned short ori_y, ori_x;
-	enum State state = state_wkg;
+	enum state state = state_wkg;
 
 	while (!quit && !Terminated)
 	{
-		tv.tv_sec  = 1;
+		tv.tv_sec  = 1 - render_1;
 		tv.tv_usec = 0;
 
 		FD_ZERO(&inset);
@@ -260,6 +275,9 @@ static void main_loop (struct front *front)
 
 			continue;
 		}
+
+		render_dynamic(&front->font, front->s_workd, ori_y, ori_x, temps_sec);
+		if (front->s_workd++ == front->s_total) break;
 	}
 }
 
@@ -302,7 +320,21 @@ static void render_constant (struct font_t *font, const unsigned short ori_y, co
 	
 	printf("\x1b[%d;%dHworking on \x1b[1m%s\x1b[0m",            loffset + 0, ori_x, task);
 	printf("\x1b[%d;%dH\x1b[2mpress 'q' to save & quit\x1b[0m", loffset + 1, ori_x);
-	printf("\x1b[%d;%dHstate: %s",                              loffset + 2, ori_x, *States);
+	printf("\x1b[%d;%dHstate: %s",                              loffset + 2, ori_x, States[state_wkg]);
+
+	fflush(stdout);
+}
+
+static void render_dynamic (struct font_t *font, const unsigned int val, const unsigned short ori_y, const unsigned short ori_x, const enum temps temps)
+{
+	const unsigned short idxs[] = { (unsigned short) val / 10, (unsigned short) val % 10};
+	const unsigned short offs[] = { ori_x + temps * font->width, ori_x + (temps + 1) * font->width };
+
+	for (unsigned short line = 0; line < font->height; line++)
+		printf("\x1b[%d;%dH%s\x1b[%d;%dH%s",
+		ori_y + line, offs[0], font->set[idxs[0]][line],
+		ori_y + line, offs[1], font->set[idxs[1]][line]
+		);
 
 	fflush(stdout);
 }
